@@ -1,5 +1,8 @@
 // ============================================================
 //  src/lib/store.ts  —  Google Sheets backend
+//
+//  SETUP: Replace the placeholder below with your deployed
+//  Google Apps Script Web App URL.
 // ============================================================
 
 import {
@@ -7,8 +10,10 @@ import {
   ShiftInfo, ShiftType, SiteSettings, AdminCredentials,
 } from '@/types';
 
+// ─── 🔑  PASTE YOUR WEB APP URL HERE ────────────────────────
 export const SHEET_API_URL =
-  'https://script.google.com/macros/s/AKfycbyRarIsbzP1lrEOzrtOapLUspxMIPNtZTOVAPQh2K9eva4yPgNA0iIxgquf5vGBcBrY/exec';
+  'https://script.google.com/macros/s/AKfycbyVLtvdweyOQuXep_eJ5Kqzbn9uJrTr5fiFaxlLX0w9u6u2UI2267XjAkg7JuhmvWBk/exec';
+// ────────────────────────────────────────────────────────────
 
 export const SHIFT_INFO: Record<ShiftType, ShiftInfo> = {
   morning: { type: 'morning', label: 'Morning', time: '7:00 AM – 3:30 PM',  color: 'text-amber-700',  bg: 'bg-amber-50',   border: 'border-amber-200'  },
@@ -27,80 +32,63 @@ const SEED_EMPLOYEES: Employee[] = [
   { id: 'e5', employeeId: '29005', name: 'Eva Begum',     role: 'Sales Rep',    active: false, createdAt: '2025-01-01' },
 ];
 
-type CacheType = {
+// ─── Normalise an employee row coming back from the sheet ───
+// The Apps Script returns active as boolean already (normaliseEmployee runs server-side),
+// but guard here too in case the seed path or a future change skips that.
+function normaliseEmployeeClient(e: Record<string, unknown>): Employee {
+  return {
+    id:           String(e.id          ?? ''),
+    employeeId:   String(e.employeeId  ?? ''),
+    name:         String(e.name        ?? ''),
+    role:         String(e.role        ?? ''),
+    active:       e.active === true || e.active === 'TRUE',
+    createdAt:    String(e.createdAt   ?? ''),
+    weeklyOffDay: (e.weeklyOffDay !== undefined && e.weeklyOffDay !== '' && e.weeklyOffDay !== null)
+                    ? Number(e.weeklyOffDay)
+                    : undefined,
+    defaultShift: (e.defaultShift && e.defaultShift !== '')
+                    ? e.defaultShift as ShiftType
+                    : undefined,
+  };
+}
+
+// ─── Normalise a single roster assignment coming back from sheet ───
+function normaliseAssignment(a: Record<string, unknown>): ShiftAssignment {
+  return {
+    employeeId:      String(a.employeeId      ?? ''),
+    shift:           (a.shift as ShiftType)   ?? 'morning',
+    effectiveFrom:   String(a.effectiveFrom   ?? ''),
+    effectiveTo:     String(a.effectiveTo     ?? ''),
+    reason:          (a.reason && a.reason !== '') ? String(a.reason) : undefined,
+    isOffDayOverride: a.isOffDayOverride === true || a.isOffDayOverride === 'TRUE',
+  };
+}
+
+// ─── Normalise the full roster map coming back from sheet ───
+function normaliseRoster(raw: Record<string, unknown[]>): RosterData {
+  const result: RosterData = {};
+  for (const [date, assignments] of Object.entries(raw)) {
+    if (!date || !Array.isArray(assignments)) continue;
+    result[date] = assignments.map(a => normaliseAssignment(a as Record<string, unknown>));
+  }
+  return result;
+}
+
+let _cache: {
   employees: Employee[];
   roster: RosterData;
   settings: SiteSettings;
   auth: AdminCredentials;
-  loadedAt: number;
-};
+} | null = null;
 
-// FIX: TTL reduced to 10s so other browsers see updates quickly.
-// The current browser always has the latest data in memory anyway
-// (optimistic updates), so the short TTL only costs one extra
-// network call per 10s on the saving browser — acceptable.
-const CACHE_TTL_MS = 10_000;
-let _cache: CacheType | null = null;
-let _loadPromise: Promise<CacheType> | null = null;
+let _loadPromise: Promise<typeof _cache> | null = null;
 
-function isCacheValid(): boolean {
-  if (!_cache) return false;
-  return Date.now() - _cache.loadedAt < CACHE_TTL_MS;
-}
-
-// ─── Debounced batch flush ────────────────────────────────────
-const DEBOUNCE_MS = 1500;
-const _dirtyDates = new Set<string>();
-let _flushTimer: ReturnType<typeof setTimeout> | null = null;
-let _flushPromise: Promise<void> | null = null;
-
-function scheduleBatchFlush(): void {
-  if (_flushTimer) clearTimeout(_flushTimer);
-  _flushTimer = setTimeout(() => {
-    _flushTimer = null;
-    _flushPromise = _flushDirtyDates().finally(() => { _flushPromise = null; });
-  }, DEBOUNCE_MS);
-}
-
-async function _flushDirtyDates(): Promise<void> {
-  if (_dirtyDates.size === 0 || !_cache) return;
-  const datesToFlush = [..._dirtyDates];
-  _dirtyDates.clear();
-  const partial: RosterData = {};
-  for (const d of datesToFlush) partial[d] = _cache.roster[d] ?? [];
-  try {
-    await apiPost({ action: 'saveRosterDates', partial });
-    // FIX: Don't expire cache after save — we already have correct data.
-    // Other browsers will pick up changes within CACHE_TTL_MS (10s).
-  } catch (e) {
-    datesToFlush.forEach(d => _dirtyDates.add(d));
-    console.error('[store] batch flush failed — will retry:', e);
-    scheduleBatchFlush();
-  }
-}
-
-export async function flushPendingSaves(): Promise<void> {
-  if (_flushTimer) {
-    clearTimeout(_flushTimer);
-    _flushTimer = null;
-    await _flushDirtyDates();
-  } else if (_flushPromise) {
-    await _flushPromise;
-  }
-}
-
-// ─── API helpers ───────────────────────────────────────────────
 async function apiGet<T = unknown>(params: Record<string, string>): Promise<T> {
   const url = new URL(SHEET_API_URL);
   Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
-  // FIX: Cache-bust every request so the browser never serves a stale
-  // response from its HTTP cache (Google Apps Script URLs are notorious
-  // for being cached aggressively by browsers and CDNs).
-  url.searchParams.set('_t', String(Date.now()));
-  const res = await fetch(url.toString(), {
-    cache: 'no-store',
-    headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' },
-  });
+  // no-cache forces a fresh read from Google Sheets every time, bypassing
+  // the browser's HTTP cache which can serve a stale Apps Script response.
+  const res = await fetch(url.toString(), { cache: 'no-store' });
   const json = await res.json();
   if (json.status !== 'ok') throw new Error(json.message ?? 'API error');
   return json.data as T;
@@ -117,22 +105,28 @@ async function apiPost<T = unknown>(body: Record<string, unknown>): Promise<T> {
   return json.data as T;
 }
 
-// ─── Load ──────────────────────────────────────────────────────
-export async function loadAll(): Promise<CacheType> {
-  if (isCacheValid()) return _cache!;
-  if (_loadPromise) return _loadPromise;
+export async function loadAll(): Promise<NonNullable<typeof _cache>> {
+  if (_cache) return _cache;
+  if (_loadPromise) return _loadPromise as Promise<NonNullable<typeof _cache>>;
 
-  _loadPromise = (async (): Promise<CacheType> => {
+  _loadPromise = (async () => {
     try {
       const raw = await apiGet<{
-        employees: Employee[];
-        roster: RosterData;
+        employees: Record<string, unknown>[];
+        roster: Record<string, unknown[]>;
         settings: Record<string, string>;
         auth: Record<string, string>;
       }>({ action: 'getAll' });
 
-      const employees: Employee[] = raw.employees.length > 0 ? raw.employees : SEED_EMPLOYEES;
-      const roster: RosterData = raw.roster ?? {};
+      // ✅ FIX: always normalise every employee coming back from the sheet
+      const rawEmps = Array.isArray(raw.employees) ? raw.employees : [];
+      const employees: Employee[] = rawEmps.length > 0
+        ? rawEmps.map(normaliseEmployeeClient)
+        : SEED_EMPLOYEES;
+
+      // ✅ FIX: normalise roster so booleans and optional fields are correct
+      const roster: RosterData = raw.roster ? normaliseRoster(raw.roster) : {};
+
       const settings: SiteSettings = {
         siteName  : raw.settings?.siteName  ?? 'PXL_Sales_Routine',
         logoEmoji : raw.settings?.logoEmoji ?? '⬡',
@@ -143,113 +137,101 @@ export async function loadAll(): Promise<CacheType> {
         password: raw.auth?.password ?? 'admin123',
       };
 
-      if (raw.employees.length === 0) {
+      if (rawEmps.length === 0) {
         await apiPost({ action: 'saveEmployees', employees });
       }
 
-      _cache = { employees, roster, settings, auth, loadedAt: Date.now() };
-      _loadPromise = null;
+      _cache = { employees, roster, settings, auth };
       return _cache;
     } catch (e) {
       console.error('[store] loadAll failed:', e);
+      // ✅ FIX: on error, clear the promise so the next call retries the network
       _loadPromise = null;
-      if (_cache) return _cache; // return stale cache rather than crashing
       _cache = {
         employees: SEED_EMPLOYEES,
         roster: {},
         settings: { siteName: 'PXL_Sales_Routine', logoEmoji: '⬡' },
         auth: { username: 'admin', password: 'admin123' },
-        loadedAt: Date.now(),
       };
       return _cache;
     }
   })();
 
-  return _loadPromise;
+  return _loadPromise as Promise<NonNullable<typeof _cache>>;
 }
 
-// FIX: invalidateCache expires the TTL timestamp rather than nulling
-// the cache object — this prevents a flash of empty data during refetch.
+// ✅ Clears both cache and the pending promise so the next read hits the sheet
 export function invalidateCache() {
-  if (_cache) _cache.loadedAt = 0;
+  _cache = null;
   _loadPromise = null;
 }
 
-// ─── Employees ─────────────────────────────────────────────────
 export async function getEmployees(): Promise<Employee[]> {
   return (await loadAll()).employees;
 }
 
 export async function saveEmployees(employees: Employee[]): Promise<void> {
+  // ✅ FIX: update cache optimistically, then persist
   if (_cache) _cache.employees = employees;
   await apiPost({ action: 'saveEmployees', employees });
-  invalidateCache();
 }
 
-// ─── Roster ────────────────────────────────────────────────────
 export async function getRoster(): Promise<RosterData> {
   return (await loadAll()).roster;
 }
 
 export async function saveRoster(roster: RosterData): Promise<void> {
+  // ✅ FIX: update cache optimistically, then persist
   if (_cache) _cache.roster = roster;
   await apiPost({ action: 'saveRoster', roster });
-  invalidateCache();
 }
 
-// ─── Settings / Auth ───────────────────────────────────────────
 export async function getSiteSettings(): Promise<SiteSettings> {
   return (await loadAll()).settings;
 }
-
 export async function saveSiteSettings(settings: SiteSettings): Promise<void> {
   if (_cache) _cache.settings = settings;
   await apiPost({ action: 'saveSettings', settings });
-  invalidateCache();
 }
 
 export async function getAdminCreds(): Promise<AdminCredentials> {
   return (await loadAll()).auth;
 }
-
 export async function saveAdminCreds(creds: AdminCredentials): Promise<void> {
   if (_cache) _cache.auth = creds;
   await apiPost({ action: 'saveAuth', auth: creds });
-  invalidateCache();
 }
 
-// ─── Roster mutations (optimistic + debounced) ─────────────────
 export function getDateAssignments(roster: RosterData, date: string): ShiftAssignment[] {
   return roster[date] ?? [];
 }
 
-export async function upsertAssignment(
-  roster: RosterData,
-  date: string,
-  assignment: ShiftAssignment,
-): Promise<RosterData> {
+// ✅ FIX: does NOT save — caller is responsible for one final saveRoster()
+// This prevents N API calls when looping over a date range.
+export function upsertAssignmentLocal(
+  roster: RosterData, date: string, assignment: ShiftAssignment,
+): RosterData {
   const existing = (roster[date] ?? []).filter(a => a.employeeId !== assignment.employeeId);
-  const next = { ...roster, [date]: [...existing, assignment] };
-  // FIX: Update cache immediately so UI is instant
-  if (_cache) _cache.roster = next;
-  _dirtyDates.add(date);
-  scheduleBatchFlush();
+  return { ...roster, [date]: [...existing, assignment] };
+}
+
+// Convenience: upsert a single assignment and immediately persist
+export async function upsertAssignment(
+  roster: RosterData, date: string, assignment: ShiftAssignment,
+): Promise<RosterData> {
+  const next = upsertAssignmentLocal(roster, date, assignment);
+  await saveRoster(next);
   return next;
 }
 
 export async function removeAssignment(
-  roster: RosterData,
-  date: string,
-  employeeId: string,
+  roster: RosterData, date: string, employeeId: string,
 ): Promise<RosterData> {
   const next = { ...roster, [date]: (roster[date] ?? []).filter(a => a.employeeId !== employeeId) };
-  if (_cache) _cache.roster = next;
-  _dirtyDates.add(date);
-  scheduleBatchFlush();
+  await saveRoster(next);
   return next;
 }
 
-// ─── Bulk operations ───────────────────────────────────────────
 export function getWeekdayDatesInMonth(year: number, month: number, weekday: number): string[] {
   const dates: string[] = [];
   const daysInMonth = new Date(year, month, 0).getDate();
@@ -262,65 +244,43 @@ export function getWeekdayDatesInMonth(year: number, month: number, weekday: num
   return dates;
 }
 
-// FIX: applyWeeklyOffDay now does ONE full saveRoster call instead of
-// queuing 30 dirty dates through saveRosterDates. For bulk operations
-// that touch every date anyway, a single full write is faster than
-// read-merge-write via the debounce path.
+// ✅ FIX: accumulate all assignments locally, then ONE saveRoster at the end
 export async function applyWeeklyOffDay(
-  roster: RosterData,
-  employee: Employee,
-  newOffWeekday: number,
-  year: number,
-  month: number,
+  roster: RosterData, employee: Employee,
+  newOffWeekday: number, year: number, month: number,
 ): Promise<RosterData> {
   const daysInMonth = new Date(year, month, 0).getDate();
   let updated = { ...roster };
-
   for (let d = 1; d <= daysInMonth; d++) {
     const dateStr  = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     const weekday  = new Date(year, month - 1, d).getDay();
     const isOffDay = weekday === newOffWeekday;
     const existing = (updated[dateStr] ?? []).filter(a => a.employeeId !== employee.id);
     const assignment: ShiftAssignment = {
-      employeeId: employee.id,
-      shift: isOffDay ? 'off' : (employee.defaultShift ?? 'morning'),
+      employeeId:   employee.id,
+      shift:        isOffDay ? 'off' : (employee.defaultShift ?? 'morning'),
       effectiveFrom: dateStr,
-      effectiveTo: dateStr,
+      effectiveTo:   dateStr,
     };
+    // local-only update — no network call inside the loop
     updated = { ...updated, [dateStr]: [...existing, assignment] };
   }
-
-  // Update cache instantly so UI reflects changes immediately
-  if (_cache) _cache.roster = updated;
-
-  // Cancel any pending debounced partial saves — we're doing a full save now
-  if (_flushTimer) { clearTimeout(_flushTimer); _flushTimer = null; }
-  _dirtyDates.clear();
-
-  // Single full save for bulk operations
-  await apiPost({ action: 'saveRoster', roster: updated });
-
+  // ✅ single save after the loop
+  await saveRoster(updated);
   return updated;
 }
 
+// ✅ FIX: accumulate locally, single save at the end
 export async function overrideSingleDay(
-  roster: RosterData,
-  employee: Employee,
-  date: string,
-  newShift: ShiftType,
-  reason?: string,
+  roster: RosterData, employee: Employee,
+  date: string, newShift: ShiftType, reason?: string,
 ): Promise<RosterData> {
   return upsertAssignment(roster, date, {
-    employeeId: employee.id,
-    shift: newShift,
-    effectiveFrom: date,
-    effectiveTo: date,
-    reason,
-    isOffDayOverride: true,
+    employeeId: employee.id, shift: newShift,
+    effectiveFrom: date, effectiveTo: date, reason, isOffDayOverride: true,
   });
 }
 
-// ─── Date utilities ────────────────────────────────────────────
 export function get15Days(startDate: string): string[] {
   return Array.from({ length: 15 }, (_, i) => {
     const [y, m, d] = startDate.split('-').map(Number);
