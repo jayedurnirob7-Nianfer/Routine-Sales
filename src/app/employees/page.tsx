@@ -19,7 +19,6 @@ export default function EmployeesPage() {
   const [selected, setSelected]   = useState<Employee | null>(null);
   const [assignTarget, setAssignTarget] = useState<{ emp: Employee; date: string } | null>(null);
   const [loading, setLoading]     = useState(true);
-  const [saving, setSaving]       = useState(false);
 
   useEffect(() => {
     Promise.all([getEmployees(), getRoster()]).then(([emps, ros]) => {
@@ -41,33 +40,31 @@ export default function EmployeesPage() {
     setShowModal(true);
   }
 
-  async function save() {
+async function save() {
     if (!form.name || !form.employeeId) return;
-    setSaving(true);
     let updated: Employee[];
     if (editing) {
       updated = employees.map(e => e.id === editing.id ? { ...editing, ...form } : e);
     } else {
       updated = [...employees, { id: Date.now().toString(), createdAt: new Date().toISOString().split('T')[0], ...form }];
     }
-    await saveEmployees(updated);
     setEmployees(updated);
     setShowModal(false);
-    setSaving(false);
+    saveEmployees(updated); // background, no await
   }
 
-  async function remove(id: string) {
+async function remove(id: string) {
     if (!confirm('Remove this employee?')) return;
     const updated = employees.filter(e => e.id !== id);
-    await saveEmployees(updated);
     setEmployees(updated);
     if (selected?.id === id) setSelected(null);
+    saveEmployees(updated); // background, no await
   }
 
-  async function toggle(id: string) {
+async function toggle(id: string) {
     const updated = employees.map(e => e.id === id ? { ...e, active: !e.active } : e);
-    await saveEmployees(updated);
     setEmployees(updated);
+    saveEmployees(updated); // background, no await
   }
 
   const upcoming15 = selected ? get15Days(todayKey()).map(date => {
@@ -209,9 +206,7 @@ export default function EmployeesPage() {
             </label>
             <div className="flex gap-2 justify-end">
               <button className="btn-ghost" onClick={() => setShowModal(false)}>Cancel</button>
-              <button className="btn-primary" onClick={save} disabled={saving}>
-                {saving ? 'Saving…' : 'Save'}
-              </button>
+<button className="btn-primary" onClick={save}>Save</button>
             </div>
           </div>
         </div>
