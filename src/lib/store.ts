@@ -32,14 +32,16 @@ const SEED_EMPLOYEES: Employee[] = [
   { id: 'e5', employeeId: '29005', name: 'Eva Begum',     role: 'Sales Rep',    active: false, createdAt: '2025-01-01' },
 ];
 
-let _cache: {
+type CacheType = {
   employees: Employee[];
   roster: RosterData;
   settings: SiteSettings;
   auth: AdminCredentials;
-} | null = null;
+};
 
-let _loadPromise: Promise<typeof _cache> | null = null;
+let _cache: CacheType | null = null;
+
+let _loadPromise: Promise<CacheType> | null = null;
 
 async function apiGet<T = unknown>(params: Record<string, string>): Promise<T> {
   const url = new URL(SHEET_API_URL);
@@ -61,11 +63,11 @@ async function apiPost<T = unknown>(body: Record<string, unknown>): Promise<T> {
   return json.data as T;
 }
 
-export async function loadAll(): Promise<NonNullable<typeof _cache>> {
+export async function loadAll(): Promise<CacheType> {
   if (_cache) return _cache;
-  if (_loadPromise) return _loadPromise as Promise<NonNullable<typeof _cache>>;
+  if (_loadPromise) return _loadPromise;
 
-  _loadPromise = (async () => {
+  _loadPromise = (async (): Promise<CacheType> => {
     try {
       const raw = await apiGet<{
         employees: Employee[];
@@ -104,7 +106,7 @@ export async function loadAll(): Promise<NonNullable<typeof _cache>> {
     }
   })();
 
-  return _loadPromise as Promise<NonNullable<typeof _cache>>;
+return _loadPromise;
 }
 
 export function invalidateCache() {
