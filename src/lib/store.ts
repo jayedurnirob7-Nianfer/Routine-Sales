@@ -12,7 +12,7 @@ import {
 
 // ─── 🔑  PASTE YOUR WEB APP URL HERE ────────────────────────
 export const SHEET_API_URL =
-  'https://script.google.com/macros/s/AKfycbyVLtvdweyOQuXep_eJ5Kqzbn9uJrTr5fiFaxlLX0w9u6u2UI2267XjAkg7JuhmvWBk/exec';
+  'https://script.google.com/macros/s/AKfycbyRarIsbzP1lrEOzrtOapLUspxMIPNtZTOVAPQh2K9eva4yPgNA0iIxgquf5vGBcBrY/exec';
 // ────────────────────────────────────────────────────────────
 
 export const SHIFT_INFO: Record<ShiftType, ShiftInfo> = {
