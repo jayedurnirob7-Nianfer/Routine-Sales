@@ -40,8 +40,57 @@ type CacheType = {
 };
 
 let _cache: CacheType | null = null;
-
 let _loadPromise: Promise<CacheType> | null = null;
+
+// ─── Debounced batch flush ────────────────────────────────────
+// Accumulates dirty roster date keys and flushes them in one
+// POST after DEBOUNCE_MS of silence. This means rapid assignments
+// (e.g. filling a whole week) fire a single network request.
+const DEBOUNCE_MS = 1500;
+const _dirtyDates = new Set<string>();
+let _flushTimer: ReturnType<typeof setTimeout> | null = null;
+let _flushPromise: Promise<void> | null = null;
+
+function scheduleBatchFlush(): void {
+  if (_flushTimer) clearTimeout(_flushTimer);
+  _flushTimer = setTimeout(() => {
+    _flushTimer = null;
+    _flushPromise = _flushDirtyDates().finally(() => { _flushPromise = null; });
+  }, DEBOUNCE_MS);
+}
+
+async function _flushDirtyDates(): Promise<void> {
+  if (_dirtyDates.size === 0 || !_cache) return;
+  const datesToFlush = [..._dirtyDates];
+  _dirtyDates.clear();
+
+  // Build a partial roster containing only changed dates
+  const partial: RosterData = {};
+  for (const d of datesToFlush) {
+    partial[d] = _cache.roster[d] ?? [];
+  }
+
+  try {
+    await apiPost({ action: 'saveRosterDates', partial });
+  } catch (e) {
+    // Re-queue on failure so they'll retry on next flush
+    datesToFlush.forEach(d => _dirtyDates.add(d));
+    console.error('[store] batch flush failed — will retry:', e);
+  }
+}
+
+/** Call this to ensure any pending saves are written before, e.g., navigating away. */
+export async function flushPendingSaves(): Promise<void> {
+  if (_flushTimer) {
+    clearTimeout(_flushTimer);
+    _flushTimer = null;
+    await _flushDirtyDates();
+  } else if (_flushPromise) {
+    await _flushPromise;
+  }
+}
+
+// ─── API helpers ───────────────────────────────────────────────
 
 async function apiGet<T = unknown>(params: Record<string, string>): Promise<T> {
   const url = new URL(SHEET_API_URL);
@@ -62,6 +111,8 @@ async function apiPost<T = unknown>(body: Record<string, unknown>): Promise<T> {
   if (json.status !== 'ok') throw new Error(json.message ?? 'API error');
   return json.data as T;
 }
+
+// ─── Load ──────────────────────────────────────────────────────
 
 export async function loadAll(): Promise<CacheType> {
   if (_cache) return _cache;
@@ -106,7 +157,7 @@ export async function loadAll(): Promise<CacheType> {
     }
   })();
 
-return _loadPromise;
+  return _loadPromise;
 }
 
 export function invalidateCache() {
@@ -114,25 +165,39 @@ export function invalidateCache() {
   _loadPromise = null;
 }
 
+// ─── Employees ─────────────────────────────────────────────────
+
 export async function getEmployees(): Promise<Employee[]> {
   return (await loadAll()).employees;
 }
+
 export async function saveEmployees(employees: Employee[]): Promise<void> {
   if (_cache) _cache.employees = employees;
   await apiPost({ action: 'saveEmployees', employees });
 }
 
+// ─── Roster ────────────────────────────────────────────────────
+
 export async function getRoster(): Promise<RosterData> {
   return (await loadAll()).roster;
 }
+
+/**
+ * Full roster save — only used for bulk operations or initial seed.
+ * For incremental changes, prefer marking dates dirty via the
+ * internal helpers so the debounced batch flush handles it.
+ */
 export async function saveRoster(roster: RosterData): Promise<void> {
   if (_cache) _cache.roster = roster;
   await apiPost({ action: 'saveRoster', roster });
 }
 
+// ─── Settings / Auth ───────────────────────────────────────────
+
 export async function getSiteSettings(): Promise<SiteSettings> {
   return (await loadAll()).settings;
 }
+
 export async function saveSiteSettings(settings: SiteSettings): Promise<void> {
   if (_cache) _cache.settings = settings;
   await apiPost({ action: 'saveSettings', settings });
@@ -141,31 +206,77 @@ export async function saveSiteSettings(settings: SiteSettings): Promise<void> {
 export async function getAdminCreds(): Promise<AdminCredentials> {
   return (await loadAll()).auth;
 }
+
 export async function saveAdminCreds(creds: AdminCredentials): Promise<void> {
   if (_cache) _cache.auth = creds;
   await apiPost({ action: 'saveAuth', auth: creds });
 }
 
+// ─── Roster mutation helpers (OPTIMISTIC + DEBOUNCED) ──────────
+
 export function getDateAssignments(roster: RosterData, date: string): ShiftAssignment[] {
   return roster[date] ?? [];
 }
 
-export async function upsertAssignment(
-  roster: RosterData, date: string, assignment: ShiftAssignment,
-): Promise<RosterData> {
+/**
+ * Updates the local cache immediately (UI feels instant) and
+ * schedules a debounced network flush. Returns the updated roster
+ * synchronously so callers can setState right away.
+ */
+export function upsertAssignmentSync(
+  roster: RosterData,
+  date: string,
+  assignment: ShiftAssignment,
+): RosterData {
   const existing = (roster[date] ?? []).filter(a => a.employeeId !== assignment.employeeId);
   const next = { ...roster, [date]: [...existing, assignment] };
-  await saveRoster(next);
+
+  // Patch cache immediately
+  if (_cache) _cache.roster = next;
+
+  // Queue this date for background network flush
+  _dirtyDates.add(date);
+  scheduleBatchFlush();
+
   return next;
 }
 
-export async function removeAssignment(
-  roster: RosterData, date: string, employeeId: string,
-): Promise<RosterData> {
+export function removeAssignmentSync(
+  roster: RosterData,
+  date: string,
+  employeeId: string,
+): RosterData {
   const next = { ...roster, [date]: (roster[date] ?? []).filter(a => a.employeeId !== employeeId) };
-  await saveRoster(next);
+
+  if (_cache) _cache.roster = next;
+  _dirtyDates.add(date);
+  scheduleBatchFlush();
+
   return next;
 }
+
+/**
+ * Async wrappers kept for backwards compatibility.
+ * They now resolve instantly (cache is already updated)
+ * and the actual network write happens in the background.
+ */
+export async function upsertAssignment(
+  roster: RosterData,
+  date: string,
+  assignment: ShiftAssignment,
+): Promise<RosterData> {
+  return upsertAssignmentSync(roster, date, assignment);
+}
+
+export async function removeAssignment(
+  roster: RosterData,
+  date: string,
+  employeeId: string,
+): Promise<RosterData> {
+  return removeAssignmentSync(roster, date, employeeId);
+}
+
+// ─── Bulk operations ───────────────────────────────────────────
 
 export function getWeekdayDatesInMonth(year: number, month: number, weekday: number): string[] {
   const dates: string[] = [];
@@ -179,12 +290,21 @@ export function getWeekdayDatesInMonth(year: number, month: number, weekday: num
   return dates;
 }
 
+/**
+ * Apply a weekly off-day pattern for a whole month.
+ * All date mutations go through upsertAssignmentSync (optimistic cache),
+ * then a SINGLE full saveRoster call is made for this bulk operation.
+ */
 export async function applyWeeklyOffDay(
-  roster: RosterData, employee: Employee,
-  newOffWeekday: number, year: number, month: number,
+  roster: RosterData,
+  employee: Employee,
+  newOffWeekday: number,
+  year: number,
+  month: number,
 ): Promise<RosterData> {
   const daysInMonth = new Date(year, month, 0).getDate();
   let updated = { ...roster };
+
   for (let d = 1; d <= daysInMonth; d++) {
     const dateStr  = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     const weekday  = new Date(year, month - 1, d).getDay();
@@ -193,23 +313,44 @@ export async function applyWeeklyOffDay(
     const assignment: ShiftAssignment = {
       employeeId: employee.id,
       shift: isOffDay ? 'off' : (employee.defaultShift ?? 'morning'),
-      effectiveFrom: dateStr, effectiveTo: dateStr,
+      effectiveFrom: dateStr,
+      effectiveTo: dateStr,
     };
     updated = { ...updated, [dateStr]: [...existing, assignment] };
   }
+
+  // Patch cache first so UI is immediate
+  if (_cache) _cache.roster = updated;
+
+  // Cancel any pending debounced flush — we're doing a full save right now
+  if (_flushTimer) { clearTimeout(_flushTimer); _flushTimer = null; }
+  _dirtyDates.clear();
+
+  // Full save for bulk changes (acceptable — only fires once per month)
   await saveRoster(updated);
+
   return updated;
 }
 
 export async function overrideSingleDay(
-  roster: RosterData, employee: Employee,
-  date: string, newShift: ShiftType, reason?: string,
+  roster: RosterData,
+  employee: Employee,
+  date: string,
+  newShift: ShiftType,
+  reason?: string,
 ): Promise<RosterData> {
+  // This goes through the fast optimistic path
   return upsertAssignment(roster, date, {
-    employeeId: employee.id, shift: newShift,
-    effectiveFrom: date, effectiveTo: date, reason, isOffDayOverride: true,
+    employeeId: employee.id,
+    shift: newShift,
+    effectiveFrom: date,
+    effectiveTo: date,
+    reason,
+    isOffDayOverride: true,
   });
 }
+
+// ─── Date utilities ────────────────────────────────────────────
 
 export function get15Days(startDate: string): string[] {
   return Array.from({ length: 15 }, (_, i) => {
