@@ -2,7 +2,8 @@
 import { useState } from 'react';
 import { Employee, ShiftType, RosterData } from '@/types';
 import {
-  SHIFT_INFO, WEEKDAYS, upsertAssignment,
+  SHIFT_INFO, WEEKDAYS,
+  upsertAssignmentLocal, saveRoster,
   applyWeeklyOffDay, overrideSingleDay,
 } from '@/lib/store';
 
@@ -44,6 +45,7 @@ export default function AssignShiftModal({ employee, date, currentShift, roster,
             weeklyOffDay: selectedWeekday,
             defaultShift: employee.defaultShift ?? 'morning',
           };
+          // applyWeeklyOffDay already does a single saveRoster internally (fixed in store.ts)
           const updated = await applyWeeklyOffDay(roster, updatedEmp, selectedWeekday, year, month);
           onSave(updated, updatedEmp);
         } else if (offMode === 'single') {
@@ -51,6 +53,12 @@ export default function AssignShiftModal({ employee, date, currentShift, roster,
           onSave(updated);
         }
       } else {
+        // ✅ FIX: accumulate all date-range assignments locally using the
+        // local-only helper, then fire ONE saveRoster at the very end.
+        // Previously upsertAssignment() was called per day which fired one
+        // HTTP POST per day — e.g. a 7-day range = 7 sequential API calls,
+        // each overwriting the previous, often resulting in only the last
+        // day surviving in Google Sheets.
         const [fy, fm, fd] = fromDate.split('-').map(Number);
         const [ty, tm, td] = toDate.split('-').map(Number);
         const start   = new Date(fy, fm - 1, fd);
@@ -62,15 +70,19 @@ export default function AssignShiftModal({ employee, date, currentShift, roster,
           const y = current.getFullYear();
           const m = String(current.getMonth() + 1).padStart(2, '0');
           const d = String(current.getDate()).padStart(2, '0');
-          updated = await upsertAssignment(updated, `${y}-${m}-${d}`, {
-            employeeId: employee.id,
+          // local-only — no network call
+          updated = upsertAssignmentLocal(updated, `${y}-${m}-${d}`, {
+            employeeId:   employee.id,
             shift,
             effectiveFrom: fromDate,
-            effectiveTo: toDate,
-            reason,
+            effectiveTo:   toDate,
+            reason: reason || undefined,
           });
           current.setDate(current.getDate() + 1);
         }
+
+        // ✅ single network call for the entire range
+        await saveRoster(updated);
         onSave(updated);
       }
     } finally {
