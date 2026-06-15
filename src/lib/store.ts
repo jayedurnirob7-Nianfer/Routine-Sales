@@ -74,14 +74,18 @@ function normaliseRoster(raw: Record<string, unknown[]>): RosterData {
   return result;
 }
 
-let _cache: {
+type CacheShape = {
   employees: Employee[];
   roster: RosterData;
   settings: SiteSettings;
   auth: AdminCredentials;
-} | null = null;
+};
 
-let _loadPromise: Promise<typeof _cache> | null = null;
+let _cache: CacheShape | null = null;
+
+// ✅ FIX: typed as Promise<CacheShape> (not Promise<CacheShape | null>)
+// so TypeScript doesn't complain that the async IIFE might resolve to null.
+let _loadPromise: Promise<CacheShape> | null = null;
 
 async function apiGet<T = unknown>(params: Record<string, string>): Promise<T> {
   const url = new URL(SHEET_API_URL);
@@ -105,9 +109,9 @@ async function apiPost<T = unknown>(body: Record<string, unknown>): Promise<T> {
   return json.data as T;
 }
 
-export async function loadAll(): Promise<NonNullable<typeof _cache>> {
+export async function loadAll(): Promise<CacheShape> {
   if (_cache) return _cache;
-  if (_loadPromise) return _loadPromise as Promise<NonNullable<typeof _cache>>;
+  if (_loadPromise) return _loadPromise;
 
   _loadPromise = (async () => {
     try {
@@ -157,7 +161,7 @@ export async function loadAll(): Promise<NonNullable<typeof _cache>> {
     }
   })();
 
-  return _loadPromise as Promise<NonNullable<typeof _cache>>;
+  return _loadPromise;
 }
 
 // ✅ Clears both cache and the pending promise so the next read hits the sheet
