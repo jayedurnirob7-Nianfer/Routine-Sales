@@ -125,40 +125,42 @@ export default function DashboardPage() {
                   <div className="text-xs opacity-75 mt-0.5">{isToday ? 'Today' : 'Upcoming'}</div>
                   <div className="text-3xl font-bold mt-2">{dayEmployeeCount}</div>
                 </div>
-                <div className="p-4 space-y-3">
-                  {TODAY_SHIFTS.map(shift => {
-                    const info = SHIFT_INFO[shift];
-                    const emps = getShiftEmployees(shift, date);
-                    
-                    return (
-                      <div key={shift}>
-                        <div className={`bg-gradient-to-r ${shiftColors[shift]} p-3 text-white rounded-lg`}>
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <div className="text-xs font-medium opacity-90">{shiftIcons[shift]} {info.label}</div>
-                              <div className="text-xs opacity-75 mt-0.5">{info.time}</div>
+                <div className="p-4">
+                  <div className="grid grid-cols-3 gap-2">
+                    {TODAY_SHIFTS.map(shift => {
+                      const info = SHIFT_INFO[shift];
+                      const emps = getShiftEmployees(shift, date);
+                      
+                      return (
+                        <div key={shift}>
+                          <div className={`bg-gradient-to-r ${shiftColors[shift]} p-3 rounded-lg`}>
+                            <div className="flex items-center justify-between mb-2">
+                              <div>
+                                <div className="text-xs font-medium opacity-90">{shiftIcons[shift]} {info.label}</div>
+                                <div className="text-xs opacity-75">{info.time}</div>
+                              </div>
+                              <div className="text-lg font-bold text-white">{emps.length}</div>
                             </div>
-                            <div className="text-2xl font-bold">{emps.length}</div>
+                            {emps.length > 0 && (
+                              <div className="space-y-1">
+                                {emps.map(emp => (
+                                  <div key={emp.id} className="flex items-center gap-1.5 text-white">
+                                    <div className="w-5 h-5 rounded-full bg-white bg-opacity-30 flex items-center justify-center text-xs font-bold shrink-0">
+                                      {emp.name.charAt(0)}
+                                    </div>
+                                    <div className="min-w-0 text-xs">
+                                      <div className="font-medium truncate">{emp.name}</div>
+                                      <div className="opacity-75 truncate">{emp.employeeId}</div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         </div>
-                        {emps.length > 0 && (
-                          <div className="mt-2 space-y-1.5 ml-2">
-                            {emps.map(emp => (
-                              <div key={emp.id} className="flex items-center gap-2">
-                                <div className="w-5 h-5 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-xs font-bold text-gray-600 dark:text-gray-300">
-                                  {emp.name.charAt(0)}
-                                </div>
-                                <div className="min-w-0">
-                                  <div className="text-xs font-medium truncate">{emp.name}</div>
-                                  <div className="text-xs text-gray-400 truncate">{emp.employeeId}</div>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             );
