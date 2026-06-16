@@ -90,9 +90,14 @@ let _loadPromise: Promise<CacheShape> | null = null;
 async function apiGet<T = unknown>(params: Record<string, string>): Promise<T> {
   const url = new URL(SHEET_API_URL);
   Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
-  // no-cache forces a fresh read from Google Sheets every time, bypassing
-  // the browser's HTTP cache which can serve a stale Apps Script response.
-  const res = await fetch(url.toString(), { cache: 'no-store' });
+  // ✅ FIX: Do NOT use cache:'no-store' — Google Apps Script responds with a
+  // 302 redirect and 'no-store' breaks the browser's ability to follow it,
+  // causing a CORS/network failure that silently falls into the catch block
+  // and seeds demo data forever instead of reading the real sheet.
+  // Bust the browser cache with a timestamp param instead — safe for GAS redirects.
+  url.searchParams.set('_t', Date.now().toString());
+  const res = await fetch(url.toString(), { redirect: 'follow' });
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
   const json = await res.json();
   if (json.status !== 'ok') throw new Error(json.message ?? 'API error');
   return json.data as T;
@@ -141,6 +146,8 @@ export async function loadAll(): Promise<CacheShape> {
         password: raw.auth?.password ?? 'admin123',
       };
 
+      // Only seed the sheet if it is genuinely empty (first-ever run).
+      // Do NOT seed if rawEmps has data — that would overwrite real sheet data.
       if (rawEmps.length === 0) {
         await apiPost({ action: 'saveEmployees', employees });
       }
@@ -148,16 +155,14 @@ export async function loadAll(): Promise<CacheShape> {
       _cache = { employees, roster, settings, auth };
       return _cache;
     } catch (e) {
-      console.error('[store] loadAll failed:', e);
-      // ✅ FIX: on error, clear the promise so the next call retries the network
+      // ✅ FIX: clear the promise so the next call retries the network instead
+      // of being permanently stuck on a failed/empty state.
+      // Do NOT set _cache here — if we cache an error state the app shows
+      // seed data forever and never recovers until a hard refresh.
       _loadPromise = null;
-      _cache = {
-        employees: SEED_EMPLOYEES,
-        roster: {},
-        settings: { siteName: 'PXL_Sales_Routine', logoEmoji: '⬡' },
-        auth: { username: 'admin', password: 'admin123' },
-      };
-      return _cache;
+      console.error('[store] loadAll failed — will retry on next call:', e);
+      // Re-throw so the UI can catch it and show an error message.
+      throw e;
     }
   })();
 
