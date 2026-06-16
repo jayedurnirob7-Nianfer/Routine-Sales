@@ -34,34 +34,22 @@ export default function DashboardPage() {
   const empMap           = Object.fromEntries(employees.map(e => [e.id, e]));
   const todayAssignments = roster[today] ?? [];
 
-  function getShiftEmployees(shift: ShiftType): Employee[] {
-    return todayAssignments
+  function getShiftEmployees(shift: ShiftType, date: string = today): Employee[] {
+    return (roster[date] ?? [])
       .filter(a => a.shift === shift)
       .map(a => empMap[a.employeeId])
       .filter(Boolean) as Employee[];
   }
 
-  const next14 = get15Days(today).slice(1);
-
-  // Get all upcoming shifts with their date and shift type
-  function getAllUpcomingShifts() {
-    const allShifts: Array<{ date: string; shift: ShiftType; employees: Employee[] }> = [];
-    
-    next14.forEach(date => {
-      TODAY_SHIFTS.forEach(shift => {
-        const employees = (roster[date] ?? [])
-          .filter(a => a.shift === shift)
-          .map(a => empMap[a.employeeId])
-          .filter(Boolean) as Employee[];
-        
-        if (employees.length > 0) {
-          allShifts.push({ date, shift, employees });
-        }
-      });
+  function getDayEmployeeCount(date: string): number {
+    let count = 0;
+    TODAY_SHIFTS.forEach(shift => {
+      count += getShiftEmployees(shift, date).length;
     });
-    
-    return allShifts;
+    return count;
   }
+
+  const all15Days = get15Days(today);
 
   if (loading) {
     return (
@@ -73,8 +61,6 @@ export default function DashboardPage() {
       </div>
     );
   }
-
-  const upcomingShifts = getAllUpcomingShifts();
 
   return (
     <div className="space-y-6">
@@ -125,50 +111,59 @@ export default function DashboardPage() {
       <div>
         <h2 className="text-lg font-semibold mb-3">Upcoming Shifts (Next 14 Days)</h2>
         
-        {upcomingShifts.length === 0 ? (
-          <div className="card p-8 text-center text-gray-400">
-            No upcoming shifts in the next 14 days.
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {upcomingShifts.map((item, idx) => {
-              const info = SHIFT_INFO[item.shift];
-              return (
-                <div key={`${item.date}-${item.shift}-${idx}`} className="card overflow-hidden">
-                  <div className={`bg-gradient-to-r ${shiftColors[item.shift]} p-4 text-white`}>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="text-sm font-medium opacity-90">
-                          {new Date(item.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short' })}
-                        </div>
-                        <div className="text-xs opacity-75 mt-0.5">
-                          {new Date(item.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                        </div>
-                      </div>
-                      <div className="text-3xl font-bold">{item.employees.length}</div>
-                    </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {all15Days.map(date => {
+            const dayEmployeeCount = getDayEmployeeCount(date);
+            const isToday = date === today;
+            
+            return (
+              <div key={date} className="card overflow-hidden">
+                <div className="bg-gradient-to-r from-gray-600 to-gray-700 p-4 text-white">
+                  <div className="text-sm font-medium">
+                    {new Date(date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
                   </div>
-                  <div className="p-4">
-                    <div className="text-xs font-semibold text-gray-400 uppercase mb-3">{shiftIcons[item.shift]} {info.label} Shift</div>
-                    <div className="space-y-2">
-                      {item.employees.map(emp => (
-                        <div key={emp.id} className="flex items-center gap-2">
-                          <div className="w-6 h-6 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-xs font-bold text-gray-600 dark:text-gray-300">
-                            {emp.name.charAt(0)}
-                          </div>
-                          <div className="min-w-0">
-                            <div className="text-xs font-medium truncate">{emp.name}</div>
-                            <div className="text-xs text-gray-400 truncate">{emp.employeeId}</div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+                  <div className="text-xs opacity-75 mt-0.5">{isToday ? 'Today' : 'Upcoming'}</div>
+                  <div className="text-3xl font-bold mt-2">{dayEmployeeCount}</div>
                 </div>
-              );
-            })}
-          </div>
-        )}
+                <div className="p-4 space-y-3">
+                  {TODAY_SHIFTS.map(shift => {
+                    const info = SHIFT_INFO[shift];
+                    const emps = getShiftEmployees(shift, date);
+                    
+                    return (
+                      <div key={shift}>
+                        <div className={`bg-gradient-to-r ${shiftColors[shift]} p-3 text-white rounded-lg`}>
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <div className="text-xs font-medium opacity-90">{shiftIcons[shift]} {info.label}</div>
+                              <div className="text-xs opacity-75 mt-0.5">{info.time}</div>
+                            </div>
+                            <div className="text-2xl font-bold">{emps.length}</div>
+                          </div>
+                        </div>
+                        {emps.length > 0 && (
+                          <div className="mt-2 space-y-1.5 ml-2">
+                            {emps.map(emp => (
+                              <div key={emp.id} className="flex items-center gap-2">
+                                <div className="w-5 h-5 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-xs font-bold text-gray-600 dark:text-gray-300">
+                                  {emp.name.charAt(0)}
+                                </div>
+                                <div className="min-w-0">
+                                  <div className="text-xs font-medium truncate">{emp.name}</div>
+                                  <div className="text-xs text-gray-400 truncate">{emp.employeeId}</div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
