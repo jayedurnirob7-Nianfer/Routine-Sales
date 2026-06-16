@@ -34,7 +34,6 @@ export default function DashboardPage() {
 
   const empMap           = Object.fromEntries(employees.map(e => [e.id, e]));
   const todayAssignments = roster[today] ?? [];
-  const activeCount      = employees.filter(e => e.active).length;
 
   function getShiftEmployees(shift: ShiftType): Employee[] {
     return todayAssignments
@@ -114,32 +113,6 @@ export default function DashboardPage() {
         })}
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <button
-          onClick={() => router.push('/employees')}
-          className="card p-4 flex items-center gap-3 hover:border-teal-400 hover:shadow-md transition-all text-left group">
-          <span className="text-2xl">👥</span>
-          <div>
-            <div className="text-xl font-bold group-hover:text-teal-600 transition-colors">{activeCount}</div>
-            <div className="text-xs text-gray-500 group-hover:text-teal-500 transition-colors">Active Employees →</div>
-          </div>
-        </button>
-
-        {([
-          { label: 'On Morning Today', value: getShiftEmployees('morning').length, icon: '🌅' },
-          { label: 'On Evening Today', value: getShiftEmployees('evening').length, icon: '🌆' },
-          { label: 'On Night Today',   value: getShiftEmployees('night').length,   icon: '🌙' },
-        ] as const).map(s => (
-          <div key={s.label} className="card p-4 flex items-center gap-3">
-            <span className="text-2xl">{s.icon}</span>
-            <div>
-              <div className="text-xl font-bold">{s.value}</div>
-              <div className="text-xs text-gray-500">{s.label}</div>
-            </div>
-          </div>
-        ))}
-      </div>
-
       <div>
         <h2 className="text-lg font-semibold mb-3">Upcoming Shifts (Next 14 Days)</h2>
         <div className="flex gap-2 mb-4">
@@ -168,29 +141,40 @@ export default function DashboardPage() {
             );
           }
           return (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {upcoming.map(u => (
-                <div key={u.date} className={`card overflow-hidden border ${info.border}`}>
-                  <div className={`${info.bg} px-4 py-2.5 border-b ${info.border}`}>
-                    <div className={`text-xs font-semibold uppercase tracking-wide ${info.color}`}>
-                      {new Date(u.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long' })}
-                    </div>
-                    <div className={`text-base font-bold ${info.color}`}>
-                      {new Date(u.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                    </div>
-                  </div>
-                  <div className="p-3 space-y-2">
-                    {u.employees.map(emp => (
-                      <div key={emp.id} className="flex items-center gap-2">
-                        <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${info.bg} ${info.color}`}>
-                          {emp.name.charAt(0)}
+                <div key={u.date} className="card overflow-hidden">
+                  <div className={`bg-gradient-to-r ${shiftColors[upcomingTab]} p-4 text-white`}>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-sm font-medium opacity-90">
+                          {new Date(u.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short' })}
                         </div>
-                        <div className="min-w-0">
-                          <div className="text-sm font-medium truncate">{emp.name}</div>
-                          <div className="text-xs text-gray-400 truncate">{emp.employeeId}</div>
+                        <div className="text-xs opacity-75 mt-0.5">
+                          {new Date(u.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                         </div>
                       </div>
-                    ))}
+                      <div className="text-3xl font-bold">{u.employees.length}</div>
+                    </div>
+                  </div>
+                  <div className="p-4">
+                    {u.employees.length === 0 ? (
+                      <p className="text-gray-400 text-sm">No one assigned</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {u.employees.map(emp => (
+                          <div key={emp.id} className="flex items-center gap-2">
+                            <div className="w-7 h-7 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-xs font-bold text-gray-600 dark:text-gray-300">
+                              {emp.name.charAt(0)}
+                            </div>
+                            <div>
+                              <div className="text-sm font-medium">{emp.name}</div>
+                              <div className="text-xs text-gray-400">{emp.employeeId} · {emp.role}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
