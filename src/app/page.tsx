@@ -41,15 +41,21 @@ export default function DashboardPage() {
       .filter(Boolean) as Employee[];
   }
 
-  function getDayEmployeeCount(date: string): number {
-    let count = 0;
-    TODAY_SHIFTS.forEach(shift => {
-      count += getShiftEmployees(shift, date).length;
-    });
-    return count;
-  }
-
   const all15Days = get15Days(today);
+
+  // Create array of all shifts for next 14 days + today
+  function getAllUpcomingShifts() {
+    const allShifts: Array<{ date: string; shift: ShiftType; employees: Employee[] }> = [];
+    
+    all15Days.forEach(date => {
+      TODAY_SHIFTS.forEach(shift => {
+        const employees = getShiftEmployees(shift, date);
+        allShifts.push({ date, shift, employees });
+      });
+    });
+    
+    return allShifts;
+  }
 
   if (loading) {
     return (
@@ -61,6 +67,8 @@ export default function DashboardPage() {
       </div>
     );
   }
+
+  const allUpcomingShifts = getAllUpcomingShifts();
 
   return (
     <div className="space-y-6">
@@ -112,63 +120,40 @@ export default function DashboardPage() {
         <h2 className="text-lg font-semibold mb-3">Upcoming Shifts (Next 14 Days)</h2>
         
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {all15Days.map(date => {
-            const dayEmployeeCount = getDayEmployeeCount(date);
-            const isToday = date === today;
-            const morningEmps = getShiftEmployees('morning', date);
-            const eveningEmps = getShiftEmployees('evening', date);
-            const nightEmps = getShiftEmployees('night', date);
-            
+          {allUpcomingShifts.map((item, idx) => {
+            const info = SHIFT_INFO[item.shift];
             return (
-              <div key={date} className="card overflow-hidden">
-                <div className="bg-gradient-to-r from-gray-600 to-gray-700 p-4 text-white">
-                  <div className="text-sm font-medium">
-                    {new Date(date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+              <div key={`${item.date}-${item.shift}-${idx}`} className="card overflow-hidden">
+                <div className={`bg-gradient-to-r ${shiftColors[item.shift]} p-4 text-white`}>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-sm font-medium opacity-90">{shiftIcons[item.shift]} {info.label} Shift</div>
+                      <div className="text-xs opacity-75 mt-0.5">{info.time}</div>
+                      <div className="text-xs opacity-75 mt-1">
+                        {new Date(item.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                      </div>
+                    </div>
+                    <div className="text-3xl font-bold">{item.employees.length}</div>
                   </div>
-                  <div className="text-xs opacity-75 mt-0.5">{isToday ? 'Today' : 'Upcoming'}</div>
-                  <div className="text-3xl font-bold mt-2">{dayEmployeeCount}</div>
                 </div>
                 <div className="p-4">
-                  <div className="flex gap-3">
-                    {/* Morning Shift - Large left box */}
-                    <div className={`flex-1 bg-gradient-to-r ${shiftColors['morning']} p-3 rounded-lg text-white`}>
-                      <div className="text-xs font-medium opacity-90 mb-1">{shiftIcons['morning']} Morning</div>
-                      <div className="text-xs opacity-75 mb-2">{SHIFT_INFO['morning'].time}</div>
-                      <div className="text-lg font-bold mb-2">{morningEmps.length}</div>
-                      {morningEmps.length > 0 && (
-                        <div className="space-y-1">
-                          {morningEmps.map(emp => (
-                            <div key={emp.id} className="flex items-center gap-1.5 text-white">
-                              <div className="w-5 h-5 rounded-full bg-white bg-opacity-30 flex items-center justify-center text-xs font-bold shrink-0">
-                                {emp.name.charAt(0)}
-                              </div>
-                              <div className="min-w-0 text-xs">
-                                <div className="font-medium truncate">{emp.name.split(' ')[0]}…</div>
-                                <div className="opacity-75 truncate">{emp.employeeId}</div>
-                              </div>
-                            </div>
-                          ))}
+                  {item.employees.length === 0 ? (
+                    <p className="text-gray-400 text-sm">No one assigned</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {item.employees.map(emp => (
+                        <div key={emp.id} className="flex items-center gap-2">
+                          <div className="w-7 h-7 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-xs font-bold text-gray-600 dark:text-gray-300">
+                            {emp.name.charAt(0)}
+                          </div>
+                          <div>
+                            <div className="text-sm font-medium">{emp.name}</div>
+                            <div className="text-xs text-gray-400">{emp.employeeId} · {emp.role}</div>
+                          </div>
                         </div>
-                      )}
+                      ))}
                     </div>
-
-                    {/* Evening and Night - Right column */}
-                    <div className="flex flex-col gap-3 flex-1">
-                      {/* Evening Shift */}
-                      <div className={`bg-gradient-to-r ${shiftColors['evening']} p-3 rounded-lg text-white`}>
-                        <div className="text-xs font-medium opacity-90 mb-1">{shiftIcons['evening']} Evening</div>
-                        <div className="text-xs opacity-75 mb-1">{SHIFT_INFO['evening'].time}</div>
-                        <div className="text-lg font-bold">{eveningEmps.length}</div>
-                      </div>
-
-                      {/* Night Shift */}
-                      <div className={`bg-gradient-to-r ${shiftColors['night']} p-3 rounded-lg text-white`}>
-                        <div className="text-xs font-medium opacity-90 mb-1">{shiftIcons['night']} Night</div>
-                        <div className="text-xs opacity-75 mb-1">{SHIFT_INFO['night'].time}</div>
-                        <div className="text-lg font-bold">{nightEmps.length}</div>
-                      </div>
-                    </div>
-                  </div>
+                  )}
                 </div>
               </div>
             );
