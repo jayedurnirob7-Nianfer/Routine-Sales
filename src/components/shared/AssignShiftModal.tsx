@@ -81,9 +81,12 @@ export default function AssignShiftModal({ employee, date, currentShift, roster,
           current.setDate(current.getDate() + 1);
         }
 
-        // ✅ single network call for the entire range
         await saveRoster(updated);
-        onSave(updated);
+
+        // ✅ FIX: persist the assigned shift as the employee's defaultShift so
+        // that future weekly-off-day patterns use the correct shift (not morning).
+        const updatedEmp: Employee = { ...employee, defaultShift: shift };
+        onSave(updated, updatedEmp);
       }
     } finally {
       setSaving(false);
