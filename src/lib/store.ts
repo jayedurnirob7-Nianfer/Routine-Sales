@@ -32,6 +32,59 @@ type CacheShape = {
 let _cache: CacheShape | null = null;
 let _loadPromise: Promise<CacheShape> | null = null;
 
+// ─── Date normalisation ────────────────────────────────────────
+// The roster sheet may store dates as "Mon Jun 01" (no year) instead of
+// ISO "YYYY-MM-DD". Every date key used elsewhere in the app (todayKey,
+// get15Days, etc.) is ISO, so we normalise every date string coming
+// from the sheet into ISO form here, once, at load time.
+const MONTHS: Record<string, number> = {
+  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+  jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+};
+
+function toISODate(raw: string): string {
+  if (!raw) return raw;
+  const s = raw.trim();
+
+  // Already ISO (YYYY-MM-DD) — return as-is.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
+  // "Mon Jun 01" or "Jun 01" or "Mon Jun 1 2026" style strings.
+  const match = s.match(/([A-Za-z]{3})\w*\s+(\d{1,2})(?:,?\s+(\d{4}))?$/);
+  if (match) {
+    const monKey = match[1].toLowerCase();
+    const month  = MONTHS[monKey];
+    const day    = Number(match[2]);
+    const explicitYear = match[3] ? Number(match[3]) : undefined;
+
+    if (month !== undefined && !Number.isNaN(day)) {
+      const now = new Date();
+      let year = explicitYear ?? now.getFullYear();
+
+      if (explicitYear === undefined) {
+        // Infer the year: build the candidate date in the current year.
+        // If that lands more than ~6 months in the past, assume it's
+        // meant to be next year (handles wrap-around near year boundary).
+        const candidate = new Date(year, month, day);
+        const diffDays = (candidate.getTime() - now.getTime()) / 86400000;
+        if (diffDays < -183) year += 1;
+      }
+
+      const dt = new Date(year, month, day);
+      return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+    }
+  }
+
+  // Fallback: try native Date parsing.
+  const parsed = new Date(s);
+  if (!Number.isNaN(parsed.getTime())) {
+    return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}-${String(parsed.getDate()).padStart(2, '0')}`;
+  }
+
+  // Couldn't parse — return original so it's at least visible/debuggable.
+  return s;
+}
+
 // ─── Normalisation helpers ────────────────────────────────────
 function toEmp(e: Record<string, unknown>): Employee {
   return {
@@ -52,8 +105,8 @@ function toAssignment(a: Record<string, unknown>): ShiftAssignment {
   return {
     employeeId:      String(a.employeeId    ?? ''),
     shift:           (a.shift as ShiftType) ?? 'morning',
-    effectiveFrom:   String(a.effectiveFrom ?? ''),
-    effectiveTo:     String(a.effectiveTo   ?? ''),
+    effectiveFrom:   toISODate(String(a.effectiveFrom ?? '')),
+    effectiveTo:     toISODate(String(a.effectiveTo   ?? '')),
     reason:          (a.reason && a.reason !== '') ? String(a.reason) : undefined,
     isOffDayOverride: a.isOffDayOverride === true || a.isOffDayOverride === 'TRUE',
   };
@@ -62,8 +115,13 @@ function toAssignment(a: Record<string, unknown>): ShiftAssignment {
 function toRoster(raw: Record<string, unknown[]>): RosterData {
   const out: RosterData = {};
   for (const [date, list] of Object.entries(raw)) {
-    if (date && Array.isArray(list))
-      out[date] = list.map(a => toAssignment(a as Record<string, unknown>));
+    if (date && Array.isArray(list)) {
+      const isoDate = toISODate(date);
+      // Merge instead of overwrite, in case two raw keys normalise to
+      // the same ISO date (shouldn't normally happen, but stay safe).
+      const existing = out[isoDate] ?? [];
+      out[isoDate] = [...existing, ...list.map(a => toAssignment(a as Record<string, unknown>))];
+    }
   }
   return out;
 }
