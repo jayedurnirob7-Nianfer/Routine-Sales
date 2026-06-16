@@ -75,12 +75,6 @@ export default function EmployeesPage() {
     if (selected?.id === id) setSelected(null);
   }
 
-  async function toggle(id: string) {
-    const updated = employees.map(e => e.id === id ? { ...e, active: !e.active } : e);
-    await saveEmployees(updated);
-    setEmployees(updated);
-  }
-
   const upcoming15 = selected ? get15Days(todayKey()).map(date => {
     const a = (roster[date] ?? []).find(x => x.employeeId === selected.id);
     return { date, assignment: a };
@@ -136,7 +130,6 @@ export default function EmployeesPage() {
             <thead className="bg-gray-50 dark:bg-gray-800 text-xs uppercase tracking-wide text-gray-500">
               <tr>
                 <th className="px-4 py-3 text-left">Employee</th>
-                <th className="px-4 py-3 text-left">Status</th>
                 {isAdmin && <th className="px-4 py-3 text-left">Actions</th>}
               </tr>
             </thead>
@@ -149,16 +142,10 @@ export default function EmployeesPage() {
                     <div className="font-medium">{emp.name}</div>
                     <div className="text-xs text-gray-400">{emp.employeeId} · {emp.role}</div>
                   </td>
-                  <td className="px-4 py-3">
-                    <span className={`badge ${emp.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-                      {emp.active ? 'Active' : 'Inactive'}
-                    </span>
-                  </td>
                   {isAdmin && (
                     <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
                       <div className="flex gap-1">
                         <button className="btn-ghost text-xs" onClick={() => openEdit(emp)}>Edit</button>
-                        <button className="btn-ghost text-xs" onClick={() => toggle(emp.id)}>{emp.active ? 'Deactivate' : 'Activate'}</button>
                         <button className="btn-danger text-xs" onClick={() => remove(emp.id)}>✕</button>
                       </div>
                     </td>
@@ -237,10 +224,6 @@ export default function EmployeesPage() {
                 <input className="input" value={form[field]} onChange={e => setForm({ ...form, [field]: e.target.value })} />
               </div>
             ))}
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={form.active} onChange={e => setForm({ ...form, active: e.target.checked })} />
-              Active
-            </label>
             <div className="flex gap-2 justify-end">
               <button className="btn-ghost" onClick={() => setShowModal(false)}>Cancel</button>
               <button className="btn-primary" onClick={save} disabled={saving}>
