@@ -115,6 +115,9 @@ export default function DashboardPage() {
           {all15Days.map(date => {
             const dayEmployeeCount = getDayEmployeeCount(date);
             const isToday = date === today;
+            const morningEmps = getShiftEmployees('morning', date);
+            const eveningEmps = getShiftEmployees('evening', date);
+            const nightEmps = getShiftEmployees('night', date);
             
             return (
               <div key={date} className="card overflow-hidden">
@@ -126,40 +129,45 @@ export default function DashboardPage() {
                   <div className="text-3xl font-bold mt-2">{dayEmployeeCount}</div>
                 </div>
                 <div className="p-4">
-                  <div className="grid grid-cols-3 gap-2">
-                    {TODAY_SHIFTS.map(shift => {
-                      const info = SHIFT_INFO[shift];
-                      const emps = getShiftEmployees(shift, date);
-                      
-                      return (
-                        <div key={shift}>
-                          <div className={`bg-gradient-to-r ${shiftColors[shift]} p-3 rounded-lg`}>
-                            <div className="flex items-center justify-between mb-2">
-                              <div>
-                                <div className="text-xs font-medium opacity-90">{shiftIcons[shift]} {info.label}</div>
-                                <div className="text-xs opacity-75">{info.time}</div>
+                  <div className="flex gap-3">
+                    {/* Morning Shift - Large left box */}
+                    <div className={`flex-1 bg-gradient-to-r ${shiftColors['morning']} p-3 rounded-lg text-white`}>
+                      <div className="text-xs font-medium opacity-90 mb-1">{shiftIcons['morning']} Morning</div>
+                      <div className="text-xs opacity-75 mb-2">{SHIFT_INFO['morning'].time}</div>
+                      <div className="text-lg font-bold mb-2">{morningEmps.length}</div>
+                      {morningEmps.length > 0 && (
+                        <div className="space-y-1">
+                          {morningEmps.map(emp => (
+                            <div key={emp.id} className="flex items-center gap-1.5 text-white">
+                              <div className="w-5 h-5 rounded-full bg-white bg-opacity-30 flex items-center justify-center text-xs font-bold shrink-0">
+                                {emp.name.charAt(0)}
                               </div>
-                              <div className="text-lg font-bold text-white">{emps.length}</div>
+                              <div className="min-w-0 text-xs">
+                                <div className="font-medium truncate">{emp.name.split(' ')[0]}…</div>
+                                <div className="opacity-75 truncate">{emp.employeeId}</div>
+                              </div>
                             </div>
-                            {emps.length > 0 && (
-                              <div className="space-y-1">
-                                {emps.map(emp => (
-                                  <div key={emp.id} className="flex items-center gap-1.5 text-white">
-                                    <div className="w-5 h-5 rounded-full bg-white bg-opacity-30 flex items-center justify-center text-xs font-bold shrink-0">
-                                      {emp.name.charAt(0)}
-                                    </div>
-                                    <div className="min-w-0 text-xs">
-                                      <div className="font-medium truncate">{emp.name}</div>
-                                      <div className="opacity-75 truncate">{emp.employeeId}</div>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
+                          ))}
                         </div>
-                      );
-                    })}
+                      )}
+                    </div>
+
+                    {/* Evening and Night - Right column */}
+                    <div className="flex flex-col gap-3 flex-1">
+                      {/* Evening Shift */}
+                      <div className={`bg-gradient-to-r ${shiftColors['evening']} p-3 rounded-lg text-white`}>
+                        <div className="text-xs font-medium opacity-90 mb-1">{shiftIcons['evening']} Evening</div>
+                        <div className="text-xs opacity-75 mb-1">{SHIFT_INFO['evening'].time}</div>
+                        <div className="text-lg font-bold">{eveningEmps.length}</div>
+                      </div>
+
+                      {/* Night Shift */}
+                      <div className={`bg-gradient-to-r ${shiftColors['night']} p-3 rounded-lg text-white`}>
+                        <div className="text-xs font-medium opacity-90 mb-1">{shiftIcons['night']} Night</div>
+                        <div className="text-xs opacity-75 mb-1">{SHIFT_INFO['night'].time}</div>
+                        <div className="text-lg font-bold">{nightEmps.length}</div>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
