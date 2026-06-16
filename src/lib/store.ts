@@ -92,7 +92,7 @@ function toEmp(e: Record<string, unknown>): Employee {
     employeeId:   String(e.employeeId  ?? ''),
     name:         String(e.name        ?? ''),
     role:         String(e.role        ?? ''),
-    active:       e.active === true || e.active === 'TRUE',
+    active:       true, // Active/Inactive feature removed — everyone is always active
     createdAt:    String(e.createdAt   ?? ''),
     weeklyOffDay: (e.weeklyOffDay !== '' && e.weeklyOffDay != null)
                     ? Number(e.weeklyOffDay) : undefined,
