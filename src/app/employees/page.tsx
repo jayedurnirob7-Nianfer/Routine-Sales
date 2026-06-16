@@ -1,6 +1,6 @@
 'use client';
-import { useEffect, useState } from 'react';
-import { getEmployees, saveEmployees, getRoster, SHIFT_INFO, get15Days, todayKey } from '@/lib/store';
+import { useEffect, useState, useCallback } from 'react';
+import { getEmployees, saveEmployees, getRoster, SHIFT_INFO, get15Days, todayKey, invalidateCache } from '@/lib/store';
 import { Employee, RosterData } from '@/types';
 import { useAuth } from '@/lib/auth';
 import ShiftBadge from '@/components/shared/ShiftBadge';
@@ -19,14 +19,26 @@ export default function EmployeesPage() {
   const [selected, setSelected]   = useState<Employee | null>(null);
   const [assignTarget, setAssignTarget] = useState<{ emp: Employee; date: string } | null>(null);
   const [loading, setLoading]     = useState(true);
+  const [saving, setSaving]       = useState(false);
+  const [error, setError]         = useState<string | null>(null);
 
-  useEffect(() => {
-    Promise.all([getEmployees(), getRoster()]).then(([emps, ros]) => {
+  const load = useCallback(async (forceRefresh = false) => {
+    setLoading(true);
+    setError(null);
+    if (forceRefresh) invalidateCache();
+    try {
+      const [emps, ros] = await Promise.all([getEmployees(), getRoster()]);
       setEmployees(emps);
       setRoster(ros);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Unknown error';
+      setError(`Failed to load from Google Sheets: ${msg}`);
+    } finally {
       setLoading(false);
-    });
+    }
   }, []);
+
+  useEffect(() => { load(); }, [load]);
 
   const filtered = employees.filter(e =>
     e.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -40,31 +52,33 @@ export default function EmployeesPage() {
     setShowModal(true);
   }
 
-async function save() {
+  async function save() {
     if (!form.name || !form.employeeId) return;
+    setSaving(true);
     let updated: Employee[];
     if (editing) {
       updated = employees.map(e => e.id === editing.id ? { ...editing, ...form } : e);
     } else {
       updated = [...employees, { id: Date.now().toString(), createdAt: new Date().toISOString().split('T')[0], ...form }];
     }
+    await saveEmployees(updated);
     setEmployees(updated);
     setShowModal(false);
-    saveEmployees(updated); // background, no await
+    setSaving(false);
   }
 
-async function remove(id: string) {
+  async function remove(id: string) {
     if (!confirm('Remove this employee?')) return;
     const updated = employees.filter(e => e.id !== id);
+    await saveEmployees(updated);
     setEmployees(updated);
     if (selected?.id === id) setSelected(null);
-    saveEmployees(updated); // background, no await
   }
 
-async function toggle(id: string) {
+  async function toggle(id: string) {
     const updated = employees.map(e => e.id === id ? { ...e, active: !e.active } : e);
+    await saveEmployees(updated);
     setEmployees(updated);
-    saveEmployees(updated); // background, no await
   }
 
   const upcoming15 = selected ? get15Days(todayKey()).map(date => {
@@ -83,12 +97,35 @@ async function toggle(id: string) {
     );
   }
 
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center space-y-4 max-w-md">
+          <div className="text-4xl">⚠️</div>
+          <p className="text-red-500 font-medium">Could not load data</p>
+          <p className="text-gray-400 text-sm">{error}</p>
+          <button
+            onClick={() => load(true)}
+            className="btn-primary text-sm">
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold">Employees</h1>
         <div className="flex gap-2">
           <input className="input w-56" placeholder="Search name or ID…" value={search} onChange={e => setSearch(e.target.value)} />
+          <button
+            className="btn-ghost text-xs border border-gray-200 dark:border-gray-700"
+            onClick={() => load(true)}
+            title="Refresh from Google Sheets">
+            ↻ Refresh
+          </button>
           {isAdmin && <button className="btn-primary" onClick={openAdd}>+ Add Employee</button>}
         </div>
       </div>
@@ -206,7 +243,9 @@ async function toggle(id: string) {
             </label>
             <div className="flex gap-2 justify-end">
               <button className="btn-ghost" onClick={() => setShowModal(false)}>Cancel</button>
-<button className="btn-primary" onClick={save}>Save</button>
+              <button className="btn-primary" onClick={save} disabled={saving}>
+                {saving ? 'Saving…' : 'Save'}
+              </button>
             </div>
           </div>
         </div>
