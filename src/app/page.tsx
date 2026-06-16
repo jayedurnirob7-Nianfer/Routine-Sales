@@ -43,16 +43,24 @@ export default function DashboardPage() {
 
   const next14 = get15Days(today).slice(1);
 
-  function getUpcomingByDay(shift: ShiftType) {
-    return next14
-      .map(date => ({
-        date,
-        employees: (roster[date] ?? [])
+  // Get all upcoming shifts with their date and shift type
+  function getAllUpcomingShifts() {
+    const allShifts: Array<{ date: string; shift: ShiftType; employees: Employee[] }> = [];
+    
+    next14.forEach(date => {
+      TODAY_SHIFTS.forEach(shift => {
+        const employees = (roster[date] ?? [])
           .filter(a => a.shift === shift)
           .map(a => empMap[a.employeeId])
-          .filter(Boolean) as Employee[],
-      }))
-      .filter(x => x.employees.length > 0);
+          .filter(Boolean) as Employee[];
+        
+        if (employees.length > 0) {
+          allShifts.push({ date, shift, employees });
+        }
+      });
+    });
+    
+    return allShifts;
   }
 
   if (loading) {
@@ -65,6 +73,8 @@ export default function DashboardPage() {
       </div>
     );
   }
+
+  const upcomingShifts = getAllUpcomingShifts();
 
   return (
     <div className="space-y-6">
@@ -115,54 +125,50 @@ export default function DashboardPage() {
       <div>
         <h2 className="text-lg font-semibold mb-3">Upcoming Shifts (Next 14 Days)</h2>
         
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {TODAY_SHIFTS.map(shift => {
-            const info = SHIFT_INFO[shift];
-            const upcoming = getUpcomingByDay(shift);
-            
-            return (
-              <div key={shift} className="card overflow-hidden">
-                <div className={`bg-gradient-to-r ${shiftColors[shift]} p-4 text-white`}>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="text-sm font-medium opacity-90">{shiftIcons[shift]} {info.label} Shift</div>
-                      <div className="text-xs opacity-75 mt-0.5">{info.time}</div>
+        {upcomingShifts.length === 0 ? (
+          <div className="card p-8 text-center text-gray-400">
+            No upcoming shifts in the next 14 days.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {upcomingShifts.map((item, idx) => {
+              const info = SHIFT_INFO[item.shift];
+              return (
+                <div key={`${item.date}-${item.shift}-${idx}`} className="card overflow-hidden">
+                  <div className={`bg-gradient-to-r ${shiftColors[item.shift]} p-4 text-white`}>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-sm font-medium opacity-90">
+                          {new Date(item.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short' })}
+                        </div>
+                        <div className="text-xs opacity-75 mt-0.5">
+                          {new Date(item.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        </div>
+                      </div>
+                      <div className="text-3xl font-bold">{item.employees.length}</div>
                     </div>
-                    <div className="text-3xl font-bold">{upcoming.length}</div>
                   </div>
-                </div>
-                <div className="p-4">
-                  {upcoming.length === 0 ? (
-                    <p className="text-gray-400 text-sm">No upcoming shifts</p>
-                  ) : (
-                    <div className="space-y-3 max-h-64 overflow-y-auto">
-                      {upcoming.map(u => (
-                        <div key={u.date} className="border-l-2 border-gray-300 dark:border-gray-600 pl-3">
-                          <div className="text-xs font-semibold text-gray-400 uppercase">
-                            {new Date(u.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                  <div className="p-4">
+                    <div className="text-xs font-semibold text-gray-400 uppercase mb-3">{shiftIcons[item.shift]} {info.label} Shift</div>
+                    <div className="space-y-2">
+                      {item.employees.map(emp => (
+                        <div key={emp.id} className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-xs font-bold text-gray-600 dark:text-gray-300">
+                            {emp.name.charAt(0)}
                           </div>
-                          <div className="space-y-1.5 mt-1.5">
-                            {u.employees.map(emp => (
-                              <div key={emp.id} className="flex items-center gap-2">
-                                <div className="w-6 h-6 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-xs font-bold text-gray-600 dark:text-gray-300">
-                                  {emp.name.charAt(0)}
-                                </div>
-                                <div className="min-w-0">
-                                  <div className="text-xs font-medium truncate">{emp.name}</div>
-                                  <div className="text-xs text-gray-400 truncate">{emp.employeeId}</div>
-                                </div>
-                              </div>
-                            ))}
+                          <div className="min-w-0">
+                            <div className="text-xs font-medium truncate">{emp.name}</div>
+                            <div className="text-xs text-gray-400 truncate">{emp.employeeId}</div>
                           </div>
                         </div>
                       ))}
                     </div>
-                  )}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
