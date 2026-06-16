@@ -1,79 +1,26 @@
 // ============================================================
 //  src/lib/store.ts  —  Google Sheets backend
-//
-//  SETUP: Replace the placeholder below with your deployed
-//  Google Apps Script Web App URL.
 // ============================================================
-
 import {
   Employee, RosterData, ShiftAssignment,
   ShiftInfo, ShiftType, SiteSettings, AdminCredentials,
 } from '@/types';
 
-// ─── 🔑  PASTE YOUR WEB APP URL HERE ────────────────────────
+// ─── Paste your deployed Apps Script Web App URL here ────────
 export const SHEET_API_URL =
-  'https://script.google.com/macros/s/AKfycbyVLtvdweyOQuXep_eJ5Kqzbn9uJrTr5fiFaxlLX0w9u6u2UI2267XjAkg7JuhmvWBk/exec';
-// ────────────────────────────────────────────────────────────
+  'https://script.google.com/macros/s/AKfycbyRarIsbzP1lrEOzrtOapLUspxMIPNtZTOVAPQh2K9eva4yPgNA0iIxgquf5vGBcBrY/exec';
+// ─────────────────────────────────────────────────────────────
 
 export const SHIFT_INFO: Record<ShiftType, ShiftInfo> = {
-  morning: { type: 'morning', label: 'Morning', time: '7:00 AM – 3:30 PM',  color: 'text-amber-700',  bg: 'bg-amber-50',   border: 'border-amber-200'  },
-  evening: { type: 'evening', label: 'Evening', time: '2:30 PM – 11:00 PM', color: 'text-blue-700',   bg: 'bg-blue-50',    border: 'border-blue-200'   },
-  night:   { type: 'night',   label: 'Night',   time: '10:30 PM – 7:00 AM', color: 'text-purple-700', bg: 'bg-purple-50',  border: 'border-purple-200' },
-  off:     { type: 'off',     label: 'Off Day', time: '—',                  color: 'text-gray-500',   bg: 'bg-gray-50',    border: 'border-gray-200'   },
+  morning: { type: 'morning', label: 'Morning', time: '7:00 AM – 3:30 PM',  color: 'text-amber-700',  bg: 'bg-amber-50',  border: 'border-amber-200'  },
+  evening: { type: 'evening', label: 'Evening', time: '2:30 PM – 11:00 PM', color: 'text-blue-700',   bg: 'bg-blue-50',   border: 'border-blue-200'   },
+  night:   { type: 'night',   label: 'Night',   time: '10:30 PM – 7:00 AM', color: 'text-purple-700', bg: 'bg-purple-50', border: 'border-purple-200' },
+  off:     { type: 'off',     label: 'Off Day', time: '—',                  color: 'text-gray-500',   bg: 'bg-gray-50',   border: 'border-gray-200'   },
 };
 
 export const WEEKDAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 
-const SEED_EMPLOYEES: Employee[] = [
-  { id: 'e1', employeeId: '29001', name: 'Alice Rahman',  role: 'Sales Rep',    active: true,  createdAt: '2025-01-01' },
-  { id: 'e2', employeeId: '29002', name: 'Boro Karim',    role: 'Senior Sales', active: true,  createdAt: '2025-01-01' },
-  { id: 'e3', employeeId: '29003', name: 'Chandni Islam', role: 'Sales Rep',    active: true,  createdAt: '2025-01-01' },
-  { id: 'e4', employeeId: '29004', name: 'Dipak Hossain', role: 'Team Lead',    active: true,  createdAt: '2025-01-01' },
-  { id: 'e5', employeeId: '29005', name: 'Eva Begum',     role: 'Sales Rep',    active: false, createdAt: '2025-01-01' },
-];
-
-// ─── Normalise an employee row coming back from the sheet ───
-// The Apps Script returns active as boolean already (normaliseEmployee runs server-side),
-// but guard here too in case the seed path or a future change skips that.
-function normaliseEmployeeClient(e: Record<string, unknown>): Employee {
-  return {
-    id:           String(e.id          ?? ''),
-    employeeId:   String(e.employeeId  ?? ''),
-    name:         String(e.name        ?? ''),
-    role:         String(e.role        ?? ''),
-    active:       e.active === true || e.active === 'TRUE',
-    createdAt:    String(e.createdAt   ?? ''),
-    weeklyOffDay: (e.weeklyOffDay !== undefined && e.weeklyOffDay !== '' && e.weeklyOffDay !== null)
-                    ? Number(e.weeklyOffDay)
-                    : undefined,
-    defaultShift: (e.defaultShift && e.defaultShift !== '')
-                    ? e.defaultShift as ShiftType
-                    : undefined,
-  };
-}
-
-// ─── Normalise a single roster assignment coming back from sheet ───
-function normaliseAssignment(a: Record<string, unknown>): ShiftAssignment {
-  return {
-    employeeId:      String(a.employeeId      ?? ''),
-    shift:           (a.shift as ShiftType)   ?? 'morning',
-    effectiveFrom:   String(a.effectiveFrom   ?? ''),
-    effectiveTo:     String(a.effectiveTo     ?? ''),
-    reason:          (a.reason && a.reason !== '') ? String(a.reason) : undefined,
-    isOffDayOverride: a.isOffDayOverride === true || a.isOffDayOverride === 'TRUE',
-  };
-}
-
-// ─── Normalise the full roster map coming back from sheet ───
-function normaliseRoster(raw: Record<string, unknown[]>): RosterData {
-  const result: RosterData = {};
-  for (const [date, assignments] of Object.entries(raw)) {
-    if (!date || !Array.isArray(assignments)) continue;
-    result[date] = assignments.map(a => normaliseAssignment(a as Record<string, unknown>));
-  }
-  return result;
-}
-
+// ─── Types ───────────────────────────────────────────────────
 type CacheShape = {
   employees: Employee[];
   roster: RosterData;
@@ -81,87 +28,104 @@ type CacheShape = {
   auth: AdminCredentials;
 };
 
+// ─── In-memory cache (lives for the browser tab session) ─────
 let _cache: CacheShape | null = null;
-
-// ✅ FIX: typed as Promise<CacheShape> (not Promise<CacheShape | null>)
-// so TypeScript doesn't complain that the async IIFE might resolve to null.
 let _loadPromise: Promise<CacheShape> | null = null;
 
-async function apiGet<T = unknown>(params: Record<string, string>): Promise<T> {
-  const url = new URL(SHEET_API_URL);
-  Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
-  // ✅ FIX: Do NOT use cache:'no-store' — Google Apps Script responds with a
-  // 302 redirect and 'no-store' breaks the browser's ability to follow it,
-  // causing a CORS/network failure that silently falls into the catch block
-  // and seeds demo data forever instead of reading the real sheet.
-  // Bust the browser cache with a timestamp param instead — safe for GAS redirects.
-  url.searchParams.set('_t', Date.now().toString());
-  const res = await fetch(url.toString(), { redirect: 'follow' });
-  if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-  const json = await res.json();
-  if (json.status !== 'ok') throw new Error(json.message ?? 'API error');
-  return json.data as T;
+// ─── Normalisation helpers ────────────────────────────────────
+function toEmp(e: Record<string, unknown>): Employee {
+  return {
+    id:           String(e.id          ?? ''),
+    employeeId:   String(e.employeeId  ?? ''),
+    name:         String(e.name        ?? ''),
+    role:         String(e.role        ?? ''),
+    active:       e.active === true || e.active === 'TRUE',
+    createdAt:    String(e.createdAt   ?? ''),
+    weeklyOffDay: (e.weeklyOffDay !== '' && e.weeklyOffDay != null)
+                    ? Number(e.weeklyOffDay) : undefined,
+    defaultShift: (e.defaultShift && e.defaultShift !== '')
+                    ? e.defaultShift as ShiftType : undefined,
+  };
 }
 
-async function apiPost<T = unknown>(body: Record<string, unknown>): Promise<T> {
+function toAssignment(a: Record<string, unknown>): ShiftAssignment {
+  return {
+    employeeId:      String(a.employeeId    ?? ''),
+    shift:           (a.shift as ShiftType) ?? 'morning',
+    effectiveFrom:   String(a.effectiveFrom ?? ''),
+    effectiveTo:     String(a.effectiveTo   ?? ''),
+    reason:          (a.reason && a.reason !== '') ? String(a.reason) : undefined,
+    isOffDayOverride: a.isOffDayOverride === true || a.isOffDayOverride === 'TRUE',
+  };
+}
+
+function toRoster(raw: Record<string, unknown[]>): RosterData {
+  const out: RosterData = {};
+  for (const [date, list] of Object.entries(raw)) {
+    if (date && Array.isArray(list))
+      out[date] = list.map(a => toAssignment(a as Record<string, unknown>));
+  }
+  return out;
+}
+
+// ─── API helpers ──────────────────────────────────────────────
+// Google Apps Script returns a 302 redirect before the JSON.
+// fetch() follows it automatically in the browser.
+// We append ?_t= to prevent stale CDN/browser cache.
+async function apiGet(action: string): Promise<Record<string, unknown>> {
+  const url = `${SHEET_API_URL}?action=${action}&_t=${Date.now()}`;
+  const res  = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const json = await res.json() as { status: string; data?: unknown; message?: string };
+  if (json.status !== 'ok') throw new Error(json.message ?? 'API error');
+  return json.data as Record<string, unknown>;
+}
+
+async function apiPost(body: Record<string, unknown>): Promise<void> {
   const res = await fetch(SHEET_API_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain' },
-    body: JSON.stringify(body),
+    method : 'POST',
+    headers: { 'Content-Type': 'text/plain' },  // text/plain avoids CORS preflight
+    body   : JSON.stringify(body),
   });
-  const json = await res.json();
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const json = await res.json() as { status: string; message?: string };
   if (json.status !== 'ok') throw new Error(json.message ?? 'API error');
-  return json.data as T;
 }
 
+// ─── Load all data once per tab session ───────────────────────
 export async function loadAll(): Promise<CacheShape> {
-  if (_cache) return _cache;
+  if (_cache)       return _cache;
   if (_loadPromise) return _loadPromise;
 
-  _loadPromise = (async () => {
+  _loadPromise = (async (): Promise<CacheShape> => {
     try {
-      const raw = await apiGet<{
+      const raw = await apiGet('getAll') as {
         employees: Record<string, unknown>[];
-        roster: Record<string, unknown[]>;
-        settings: Record<string, string>;
-        auth: Record<string, string>;
-      }>({ action: 'getAll' });
+        roster:    Record<string, unknown[]>;
+        settings:  Record<string, string>;
+        auth:      Record<string, string>;
+      };
 
-      // ✅ FIX: always normalise every employee coming back from the sheet
-      const rawEmps = Array.isArray(raw.employees) ? raw.employees : [];
-      const employees: Employee[] = rawEmps.length > 0
-        ? rawEmps.map(normaliseEmployeeClient)
-        : SEED_EMPLOYEES;
+      const employees = Array.isArray(raw.employees) && raw.employees.length > 0
+        ? raw.employees.map(toEmp)
+        : [];                        // empty = sheet is empty, no demo data injected
 
-      // ✅ FIX: normalise roster so booleans and optional fields are correct
-      const roster: RosterData = raw.roster ? normaliseRoster(raw.roster) : {};
-
-      const settings: SiteSettings = {
-        siteName  : raw.settings?.siteName  ?? 'PXL_Sales_Routine',
-        logoEmoji : raw.settings?.logoEmoji ?? '⬡',
-        logoImage : raw.settings?.logoImage || undefined,
+      const roster   = raw.roster   ? toRoster(raw.roster) : {};
+      const settings : SiteSettings = {
+        siteName  : raw.settings?.siteName   ?? 'PXL Sales Routine',
+        logoEmoji : raw.settings?.logoEmoji  ?? '⬡',
+        logoImage : raw.settings?.logoImage  || undefined,
       };
       const auth: AdminCredentials = {
         username: raw.auth?.username ?? 'admin',
         password: raw.auth?.password ?? 'admin123',
       };
 
-      // Only seed the sheet if it is genuinely empty (first-ever run).
-      // Do NOT seed if rawEmps has data — that would overwrite real sheet data.
-      if (rawEmps.length === 0) {
-        await apiPost({ action: 'saveEmployees', employees });
-      }
-
       _cache = { employees, roster, settings, auth };
       return _cache;
     } catch (e) {
-      // ✅ FIX: clear the promise so the next call retries the network instead
-      // of being permanently stuck on a failed/empty state.
-      // Do NOT set _cache here — if we cache an error state the app shows
-      // seed data forever and never recovers until a hard refresh.
+      // Clear so the next call retries — do NOT store seed/demo data
       _loadPromise = null;
-      console.error('[store] loadAll failed — will retry on next call:', e);
-      // Re-throw so the UI can catch it and show an error message.
       throw e;
     }
   })();
@@ -169,62 +133,59 @@ export async function loadAll(): Promise<CacheShape> {
   return _loadPromise;
 }
 
-// ✅ Clears both cache and the pending promise so the next read hits the sheet
-export function invalidateCache() {
-  _cache = null;
-  _loadPromise = null;
+// Call this to force a fresh fetch from the sheet (e.g. on "Refresh" button)
+export function invalidateCache(): void {
+  _cache        = null;
+  _loadPromise  = null;
 }
 
+// ─── Public getters ───────────────────────────────────────────
 export async function getEmployees(): Promise<Employee[]> {
   return (await loadAll()).employees;
 }
+export async function getRoster(): Promise<RosterData> {
+  return (await loadAll()).roster;
+}
+export async function getSiteSettings(): Promise<SiteSettings> {
+  return (await loadAll()).settings;
+}
+export async function getAdminCreds(): Promise<AdminCredentials> {
+  return (await loadAll()).auth;
+}
 
+// ─── Public savers ────────────────────────────────────────────
+// Each saver updates the in-memory cache first (instant UI),
+// then persists to Google Sheets in the background.
 export async function saveEmployees(employees: Employee[]): Promise<void> {
-  // ✅ FIX: update cache optimistically, then persist
   if (_cache) _cache.employees = employees;
   await apiPost({ action: 'saveEmployees', employees });
 }
 
-export async function getRoster(): Promise<RosterData> {
-  return (await loadAll()).roster;
-}
-
 export async function saveRoster(roster: RosterData): Promise<void> {
-  // ✅ FIX: update cache optimistically, then persist
   if (_cache) _cache.roster = roster;
   await apiPost({ action: 'saveRoster', roster });
 }
 
-export async function getSiteSettings(): Promise<SiteSettings> {
-  return (await loadAll()).settings;
-}
 export async function saveSiteSettings(settings: SiteSettings): Promise<void> {
   if (_cache) _cache.settings = settings;
   await apiPost({ action: 'saveSettings', settings });
 }
 
-export async function getAdminCreds(): Promise<AdminCredentials> {
-  return (await loadAll()).auth;
-}
 export async function saveAdminCreds(creds: AdminCredentials): Promise<void> {
   if (_cache) _cache.auth = creds;
   await apiPost({ action: 'saveAuth', auth: creds });
 }
 
-export function getDateAssignments(roster: RosterData, date: string): ShiftAssignment[] {
-  return roster[date] ?? [];
-}
-
-// ✅ FIX: does NOT save — caller is responsible for one final saveRoster()
-// This prevents N API calls when looping over a date range.
+// ─── Roster helpers ───────────────────────────────────────────
+// upsertAssignmentLocal: mutate roster in memory only — no API call.
+// Use this inside loops, then call saveRoster() once at the end.
 export function upsertAssignmentLocal(
   roster: RosterData, date: string, assignment: ShiftAssignment,
 ): RosterData {
-  const existing = (roster[date] ?? []).filter(a => a.employeeId !== assignment.employeeId);
-  return { ...roster, [date]: [...existing, assignment] };
+  const others = (roster[date] ?? []).filter(a => a.employeeId !== assignment.employeeId);
+  return { ...roster, [date]: [...others, assignment] };
 }
 
-// Convenience: upsert a single assignment and immediately persist
 export async function upsertAssignment(
   roster: RosterData, date: string, assignment: ShiftAssignment,
 ): Promise<RosterData> {
@@ -241,66 +202,49 @@ export async function removeAssignment(
   return next;
 }
 
-export function getWeekdayDatesInMonth(year: number, month: number, weekday: number): string[] {
-  const dates: string[] = [];
-  const daysInMonth = new Date(year, month, 0).getDate();
-  for (let d = 1; d <= daysInMonth; d++) {
-    const date = new Date(year, month - 1, d);
-    if (date.getDay() === weekday) {
-      dates.push(`${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`);
-    }
-  }
-  return dates;
-}
-
-// ✅ FIX: accumulate all assignments locally, then ONE saveRoster at the end
+// Applies a weekly off-day pattern for the whole month — one save at the end
 export async function applyWeeklyOffDay(
   roster: RosterData, employee: Employee,
-  newOffWeekday: number, year: number, month: number,
+  offWeekday: number, year: number, month: number,
 ): Promise<RosterData> {
-  const daysInMonth = new Date(year, month, 0).getDate();
+  const days = new Date(year, month, 0).getDate();
   let updated = { ...roster };
-  for (let d = 1; d <= daysInMonth; d++) {
-    const dateStr  = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-    const weekday  = new Date(year, month - 1, d).getDay();
-    const isOffDay = weekday === newOffWeekday;
-    const existing = (updated[dateStr] ?? []).filter(a => a.employeeId !== employee.id);
-    const assignment: ShiftAssignment = {
+  for (let d = 1; d <= days; d++) {
+    const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const isOff   = new Date(year, month - 1, d).getDay() === offWeekday;
+    updated = upsertAssignmentLocal(updated, dateStr, {
       employeeId:   employee.id,
-      shift:        isOffDay ? 'off' : (employee.defaultShift ?? 'morning'),
+      shift:        isOff ? 'off' : (employee.defaultShift ?? 'morning'),
       effectiveFrom: dateStr,
       effectiveTo:   dateStr,
-    };
-    // local-only update — no network call inside the loop
-    updated = { ...updated, [dateStr]: [...existing, assignment] };
+    });
   }
-  // ✅ single save after the loop
   await saveRoster(updated);
   return updated;
 }
 
-// ✅ FIX: accumulate locally, single save at the end
 export async function overrideSingleDay(
   roster: RosterData, employee: Employee,
-  date: string, newShift: ShiftType, reason?: string,
+  date: string, shift: ShiftType, reason?: string,
 ): Promise<RosterData> {
   return upsertAssignment(roster, date, {
-    employeeId: employee.id, shift: newShift,
+    employeeId: employee.id, shift,
     effectiveFrom: date, effectiveTo: date, reason, isOffDayOverride: true,
   });
 }
 
-export function get15Days(startDate: string): string[] {
-  return Array.from({ length: 15 }, (_, i) => {
-    const [y, m, d] = startDate.split('-').map(Number);
-    const date = new Date(y, m - 1, d + i);
-    return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
-  });
-}
-
+// ─── Date utilities ───────────────────────────────────────────
 export function todayKey(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+export function get15Days(startDate: string): string[] {
+  const [y, m, d] = startDate.split('-').map(Number);
+  return Array.from({ length: 15 }, (_, i) => {
+    const dt = new Date(y, m - 1, d + i);
+    return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+  });
 }
 
 export function formatDate(dateStr: string): string {
@@ -313,4 +257,18 @@ export function formatDateFull(dateStr: string): string {
   return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
   });
+}
+
+export function getWeekdayDatesInMonth(year: number, month: number, weekday: number): string[] {
+  const dates: string[] = [];
+  const days = new Date(year, month, 0).getDate();
+  for (let d = 1; d <= days; d++) {
+    if (new Date(year, month - 1, d).getDay() === weekday)
+      dates.push(`${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`);
+  }
+  return dates;
+}
+
+export function getDateAssignments(roster: RosterData, date: string): ShiftAssignment[] {
+  return roster[date] ?? [];
 }
