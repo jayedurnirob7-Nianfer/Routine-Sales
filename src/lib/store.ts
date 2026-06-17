@@ -15,29 +15,24 @@ export const SHIFT_INFO: Record<ShiftType, ShiftInfo> = {
 };
 
 // ─── localStorage helpers ─────────────────────────────────────────
-const LS_EMP    = 'rs_employees_v1';
-const LS_ROSTER = 'rs_roster_v1';
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes before background refresh
+const LS_KEY = 'rs_all_v2';
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 function lsGet<T>(key: string): { data: T; ts: number } | null {
   if (typeof window === 'undefined') return null;
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : null;
-  } catch { return null; }
+  try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : null; }
+  catch { return null; }
 }
-
 function lsSet(key: string, data: unknown): void {
   if (typeof window === 'undefined') return;
-  try { localStorage.setItem(key, JSON.stringify({ data, ts: Date.now() })); } catch { /* quota full */ }
+  try { localStorage.setItem(key, JSON.stringify({ data, ts: Date.now() })); } catch { /* quota */ }
 }
-
 function lsClear(key: string): void {
   if (typeof window === 'undefined') return;
   try { localStorage.removeItem(key); } catch { /* ignore */ }
 }
 
-// ─── Date helpers ─────────────────────────────────────────────────
+// ─── Type converters ──────────────────────────────────────────────
 function toISODate(dateStr: string): string {
   if (!dateStr) return '';
   if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr;
@@ -45,15 +40,10 @@ function toISODate(dateStr: string): string {
   if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
   const match = dateStr.match(/^(\d{1,2})\s+([a-zA-Z]{3})\s+(\d{4})$/i);
   if (match) {
-    const MONTHS: Record<string, number> = {
-      jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
-      jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
-    };
-    const y = parseInt(match[3], 10);
+    const MONTHS: Record<string, number> = { jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11 };
     const m = MONTHS[match[2].toLowerCase()];
-    const day = parseInt(match[1], 10);
     if (m !== undefined) {
-      const dt = new Date(y, m, day);
+      const dt = new Date(parseInt(match[3],10), m, parseInt(match[1],10));
       return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
     }
   }
@@ -84,104 +74,121 @@ function toAssignment(a: Record<string, unknown>): ShiftAssignment {
   };
 }
 
-// ─── API ──────────────────────────────────────────────────────────
-async function apiGet(action: string): Promise<Record<string, unknown>> {
-  const res = await fetch(`${API_URL}?action=${action}`);
-  if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-  const json = await res.json();
-  if (json.status !== 'success') throw new Error(json.message || 'API request failed');
-  return json.data;
-}
-
-async function apiPost(action: string, payload: unknown): Promise<void> {
-  await fetch(`${API_URL}?action=${action}`, {
-    method: 'POST',
-    mode: 'no-cors',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-}
-
-// ─── In-memory cache ──────────────────────────────────────────────
-let cachedEmployees: Employee[] | null = null;
-let cachedRoster: RosterData | null = null;
-
-export function invalidateCache() {
-  cachedEmployees = null;
-  cachedRoster = null;
-  lsClear(LS_EMP);
-  lsClear(LS_ROSTER);
-}
-
-// ─── Employees ────────────────────────────────────────────────────
-async function fetchEmployeesFromAPI(): Promise<Employee[]> {
-  const raw = await apiGet('getEmployees') as unknown as Record<string, unknown>[];
-  const employees = raw.map(toEmployee);
-  cachedEmployees = employees;
-  lsSet(LS_EMP, employees);
-  return employees;
-}
-
-export async function getEmployees(): Promise<Employee[]> {
-  // 1. In-memory cache (fastest)
-  if (cachedEmployees) return cachedEmployees;
-
-  // 2. localStorage cache (instant on repeat visits)
-  const cached = lsGet<Employee[]>(LS_EMP);
-  if (cached) {
-    cachedEmployees = cached.data;
-    // Refresh in background if stale
-    if (Date.now() - cached.ts > CACHE_TTL) {
-      fetchEmployeesFromAPI().catch(() => {});
-    }
-    return cachedEmployees;
-  }
-
-  // 3. Fetch from API (first ever visit)
-  return fetchEmployeesFromAPI();
-}
-
-export async function saveEmployees(employees: Employee[]): Promise<void> {
-  await apiPost('saveEmployees', { employees });
-  cachedEmployees = employees;
-  lsSet(LS_EMP, employees);
-}
-
-// ─── Roster ───────────────────────────────────────────────────────
-async function fetchRosterFromAPI(): Promise<RosterData> {
-  const raw = await apiGet('getRoster') as unknown as Record<string, unknown[]>;
+function toRoster(raw: Record<string, unknown[]>): RosterData {
   const roster: RosterData = {};
   for (const [date, assignments] of Object.entries(raw)) {
     roster[date] = (assignments as Record<string, unknown>[]).map(toAssignment);
   }
-  cachedRoster = roster;
-  lsSet(LS_ROSTER, roster);
   return roster;
 }
 
-export async function getRoster(): Promise<RosterData> {
-  // 1. In-memory cache (fastest)
-  if (cachedRoster) return cachedRoster;
+// ─── Cached state ─────────────────────────────────────────────────
+interface AllData {
+  employees: Employee[];
+  roster: RosterData;
+  settings: SiteSettings;
+  auth: AdminCredentials;
+}
 
-  // 2. localStorage cache (instant on repeat visits)
-  const cached = lsGet<RosterData>(LS_ROSTER);
+let memCache: AllData | null = null;
+
+export function invalidateCache() {
+  memCache = null;
+  lsClear(LS_KEY);
+}
+
+// ─── Core API ─────────────────────────────────────────────────────
+// Single GET call — the new Apps Script only supports ?action=getAll
+async function fetchAll(): Promise<AllData> {
+  const res = await fetch(`${API_URL}?action=getAll`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const json = await res.json();
+  // New Apps Script returns status:'ok' (NOT 'success')
+  if (json.status !== 'ok') throw new Error(json.message || 'API error');
+  const d = json.data;
+  const result: AllData = {
+    employees: (d.employees as Record<string, unknown>[]).map(toEmployee),
+    roster:    toRoster(d.roster as Record<string, unknown[]>),
+    settings:  {
+      siteName:  String(d.settings?.siteName  ?? 'PXL Sales Routine'),
+      logoEmoji: String(d.settings?.logoEmoji ?? '⬡'),
+      logoImage: d.settings?.logoImage ? String(d.settings.logoImage) : undefined,
+    },
+    auth: {
+      username: d.auth?.username ? String(d.auth.username) : undefined,
+      password: d.auth?.password ? String(d.auth.password) : undefined,
+    },
+  };
+  memCache = result;
+  lsSet(LS_KEY, result);
+  return result;
+}
+
+async function getAll(): Promise<AllData> {
+  // 1. In-memory (fastest)
+  if (memCache) return memCache;
+  // 2. localStorage (instant on repeat visits)
+  const cached = lsGet<AllData>(LS_KEY);
   if (cached) {
-    cachedRoster = cached.data;
+    memCache = cached.data;
     // Refresh in background if stale
-    if (Date.now() - cached.ts > CACHE_TTL) {
-      fetchRosterFromAPI().catch(() => {});
-    }
-    return cachedRoster;
+    if (Date.now() - cached.ts > CACHE_TTL) fetchAll().catch(() => {});
+    return memCache;
   }
+  // 3. Fetch from API (first visit)
+  return fetchAll();
+}
 
-  // 3. Fetch from API (first ever visit)
-  return fetchRosterFromAPI();
+// POST — action MUST be inside the body (Apps Script reads body.action)
+async function apiPost(action: string, payload: Record<string, unknown>): Promise<void> {
+  await fetch(API_URL, {
+    method: 'POST',
+    mode: 'no-cors',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, ...payload }),
+  });
+}
+
+// ─── Public data accessors ────────────────────────────────────────
+export async function getEmployees(): Promise<Employee[]> {
+  return (await getAll()).employees;
+}
+
+export async function getRoster(): Promise<RosterData> {
+  return (await getAll()).roster;
+}
+
+export async function getSiteSettings(): Promise<SiteSettings> {
+  try { return (await getAll()).settings; }
+  catch { return { siteName: 'PXL Sales Routine', logoEmoji: '⬡' }; }
+}
+
+export async function getAdminCreds(): Promise<AdminCredentials> {
+  try { return (await getAll()).auth; }
+  catch { return {}; }
+}
+
+// ─── Save functions ───────────────────────────────────────────────
+export async function saveEmployees(employees: Employee[]): Promise<void> {
+  await apiPost('saveEmployees', { employees });
+  if (memCache) { memCache = { ...memCache, employees }; lsSet(LS_KEY, memCache); }
 }
 
 export async function saveRoster(roster: RosterData): Promise<void> {
   await apiPost('saveRoster', { roster });
-  cachedRoster = roster;
-  lsSet(LS_ROSTER, roster);
+  if (memCache) { memCache = { ...memCache, roster }; lsSet(LS_KEY, memCache); }
+}
+
+export async function saveSiteSettings(settings: SiteSettings): Promise<void> {
+  // Apps Script action is 'saveSettings' (not 'saveSiteSettings')
+  await apiPost('saveSettings', { settings });
+  if (memCache) { memCache = { ...memCache, settings }; lsSet(LS_KEY, memCache); }
+}
+
+export async function saveAdminCreds(creds: AdminCredentials): Promise<void> {
+  // Apps Script action is 'saveAuth' (not 'saveAdminCreds')
+  await apiPost('saveAuth', { auth: creds });
+  if (memCache) { memCache = { ...memCache, auth: creds }; lsSet(LS_KEY, memCache); }
 }
 
 // ─── Assignment helpers ───────────────────────────────────────────
@@ -198,13 +205,13 @@ export async function upsertAssignment(roster: RosterData, date: string, assignm
 
 export async function applyWeeklyOffDay(
   roster: RosterData, employee: Employee,
-  offWeekday: number, year: number, month: number, startDay: number = 1
+  offWeekday: number, year: number, month: number, startDay = 1
 ): Promise<RosterData> {
   const days = new Date(year, month, 0).getDate();
   let updated = { ...roster };
   for (let d = startDay; d <= days; d++) {
     const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-    const isOff   = new Date(year, month - 1, d).getDay() === offWeekday;
+    const isOff = new Date(year, month - 1, d).getDay() === offWeekday;
     updated = upsertAssignmentLocal(updated, dateStr, {
       employeeId: employee.id,
       shift: isOff ? 'off' : (employee.defaultShift ?? 'morning'),
@@ -247,9 +254,7 @@ export function getActiveLeave(roster: RosterData, employeeId: string): LeaveRec
     const a = (roster[dateStr] ?? []).find(x => x.employeeId === employeeId && x.reason?.startsWith('LEAVE|'));
     if (a) {
       const parts = a.reason!.split('|');
-      if (parts[2] >= today) {
-        return { employeeId, fromDate: parts[1], toDate: parts[2], reason: parts[3] || undefined };
-      }
+      if (parts[2] >= today) return { employeeId, fromDate: parts[1], toDate: parts[2], reason: parts[3] || undefined };
     }
   }
   return null;
@@ -302,28 +307,20 @@ export function getDateAssignments(roster: RosterData, date: string): ShiftAssig
 
 // ─── Night Shift Progress ─────────────────────────────────────────
 export function getNightShiftProgress(
-  roster: RosterData,
-  employeeId: string,
-  selectedDate: string = todayKey(),
+  roster: RosterData, employeeId: string, selectedDate: string = todayKey(),
 ) {
   function shiftOn(dateStr: string): ShiftType | null {
     const a = (roster[dateStr] ?? []).find(a => a.employeeId === employeeId);
     return a ? a.shift : null;
   }
-
-  function isLeave(dateStr: string): boolean {
-    return isOnLeave(roster, employeeId, dateStr);
-  }
-
+  function isLeave(dateStr: string) { return isOnLeave(roster, employeeId, dateStr); }
   function offsetDate(dateStr: string, days: number): string {
     const [y, m, d] = dateStr.split('-').map(Number);
     const dt = new Date(y, m - 1, d + days);
-    return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+    return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
   }
-
-  function isInBlock(dateStr: string): boolean {
-    const s = shiftOn(dateStr);
-    return s === 'night' || s === 'off';
+  function isInBlock(dateStr: string) {
+    const s = shiftOn(dateStr); return s === 'night' || s === 'off';
   }
 
   if (!isInBlock(selectedDate)) {
@@ -331,28 +328,24 @@ export function getNightShiftProgress(
     return { rangeFrom: dt, rangeTo: dt, totalNights: 0, completedNights: 0, remainingNights: 0 };
   }
 
-  const MAX_SCAN = 366;
   let blockStart = selectedDate;
-  for (let i = 1; i <= MAX_SCAN; i++) {
+  for (let i = 1; i <= 366; i++) {
     const prev = offsetDate(selectedDate, -i);
     if (!isInBlock(prev)) break;
     blockStart = prev;
   }
-
   let blockEnd = selectedDate;
-  for (let i = 1; i <= MAX_SCAN; i++) {
+  for (let i = 1; i <= 366; i++) {
     const next = offsetDate(selectedDate, i);
     if (!isInBlock(next)) break;
     blockEnd = next;
   }
 
-  let completedNights = 0;
-  let remainingNights = 0;
-  let cur = blockStart;
+  let completedNights = 0, remainingNights = 0, cur = blockStart;
   while (cur <= blockEnd) {
     if (shiftOn(cur) === 'night' && !isLeave(cur)) {
-      if (cur <= selectedDate) completedNights += 1;
-      else remainingNights += 1;
+      if (cur <= selectedDate) completedNights++;
+      else remainingNights++;
     }
     cur = offsetDate(cur, 1);
   }
@@ -361,42 +354,6 @@ export function getNightShiftProgress(
     rangeFrom: new Date(blockStart + 'T00:00:00'),
     rangeTo:   new Date(blockEnd   + 'T00:00:00'),
     totalNights: completedNights + remainingNights,
-    completedNights,
-    remainingNights,
+    completedNights, remainingNights,
   };
-}
-
-// ─── Site Settings ────────────────────────────────────────────────
-export async function getSiteSettings(): Promise<SiteSettings> {
-  try {
-    const raw = await apiGet('getSiteSettings');
-    return {
-      siteName:  String(raw.siteName  ?? 'Routine Sales'),
-      logoEmoji: String(raw.logoEmoji ?? '📋'),
-      logoImage: raw.logoImage ? String(raw.logoImage) : undefined,
-    };
-  } catch {
-    return { siteName: 'Routine Sales', logoEmoji: '📋' };
-  }
-}
-
-export async function saveSiteSettings(settings: SiteSettings): Promise<void> {
-  await apiPost('saveSiteSettings', { settings });
-}
-
-// ─── Admin Credentials ────────────────────────────────────────────
-export async function getAdminCreds(): Promise<AdminCredentials> {
-  try {
-    const raw = await apiGet('getAdminCreds');
-    return {
-      username: raw.username ? String(raw.username) : undefined,
-      password: raw.password ? String(raw.password) : undefined,
-    };
-  } catch {
-    return {};
-  }
-}
-
-export async function saveAdminCreds(creds: AdminCredentials): Promise<void> {
-  await apiPost('saveAdminCreds', { creds });
 }
