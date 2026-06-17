@@ -169,8 +169,21 @@ export default function DashboardPage() {
     );
   }
 
-  function EmployeeRow({ emp, muted = false, date }: { emp: Employee; muted?: boolean; date: string }) {
+  function EmployeeRow({ emp, muted = false, date, shiftType }: { emp: Employee; muted?: boolean; date: string; shiftType?: ShiftType }) {
     const isSelected = selectedEmp?.emp.id === emp.id && selectedEmp?.date === date;
+    
+    let progressBadge = null;
+    if (shiftType === 'night' && !muted) {
+      const prog = getNightShiftProgress(roster, leaves, emp.employeeId, date);
+      if (prog.totalNights > 0) {
+        progressBadge = (
+          <span className="ml-2 text-[10px] font-bold text-purple-700 bg-purple-100 dark:bg-purple-900/40 px-1.5 py-0.5 rounded">
+            {prog.completedNights} / {prog.totalNights}
+          </span>
+        );
+      }
+    }
+
     return (
       <div
         className="relative flex items-center gap-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/40 rounded-lg -mx-1 px-1 py-0.5"
@@ -180,7 +193,10 @@ export default function DashboardPage() {
           {emp.name.charAt(0)}
         </div>
         <div>
-          <div className={`text-sm font-medium ${muted ? 'text-gray-400' : ''}`}>{emp.name}</div>
+          <div className={`text-sm font-medium flex items-center ${muted ? 'text-gray-400' : ''}`}>
+            {emp.name}
+            {progressBadge}
+          </div>
           <div className="text-xs text-gray-400">{emp.employeeId} · {emp.role}</div>
         </div>
         {isSelected && <NightProgressPopover employee={emp} date={date} />}
@@ -207,7 +223,7 @@ export default function DashboardPage() {
           ) : (
             <div className="space-y-2">
               {employees.map(emp => (
-                <EmployeeRow key={emp.id} emp={emp} date={date} />
+                <EmployeeRow key={emp.id} emp={emp} date={date} shiftType={shift} />
               ))}
             </div>
           )}
