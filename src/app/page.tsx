@@ -28,7 +28,6 @@ export default function DashboardPage() {
   const [roster, setRoster]       = useState<RosterData>({});
   const [loading, setLoading]     = useState(true);
   
-  // Replaced selectedEmp with activeSelection
   const [activeSelection, setActiveSelection] = useState<ActiveSelection | null>(null);
   const today = todayKey();
 
@@ -61,7 +60,7 @@ export default function DashboardPage() {
     const yesterday = prevDateKey(date);
 
     offToday.forEach(emp => {
-      const yesterdayAssignment = (roster[yesterday] ?? []).find(a => a.employeeId === emp.employeeId); // Used employeeId instead of id
+      const yesterdayAssignment = (roster[yesterday] ?? []).find(a => a.employeeId === emp.employeeId);
       if (yesterdayAssignment && TODAY_SHIFTS.includes(yesterdayAssignment.shift)) {
         grouped[yesterdayAssignment.shift].push(emp);
       } else {
@@ -104,7 +103,6 @@ export default function DashboardPage() {
   const todayOffByShift = getOffEmployeesByPrevShift(today);
 
   function NightProgressPopover({ employee }: { employee: Employee }) {
-    // Passes the actual employeeId to match the roster logic perfectly
     const progress = getNightShiftProgress(roster, employee.employeeId, today);
     
     return (
@@ -144,7 +142,6 @@ export default function DashboardPage() {
   }
 
   function EmployeeRow({ emp, scopeKey, muted = false }: { emp: Employee; scopeKey: string; muted?: boolean }) {
-    // Checks both ID and the unique location key to determine if it should open
     const isSelected = activeSelection?.employeeId === emp.employeeId && activeSelection?.scopeKey === scopeKey;
     
     return (
