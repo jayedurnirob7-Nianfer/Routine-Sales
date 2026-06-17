@@ -16,12 +16,20 @@ const shiftIcons: Record<string, string> = {
   morning: '🌅', evening: '🌆', night: '🌙', off: '🛌',
 };
 
+// Tracks WHO is clicked and EXACTLY WHERE they were clicked
+interface ActiveSelection {
+  employeeId: string;
+  scopeKey: string;
+}
+
 export default function DashboardPage() {
   const router = useRouter();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [roster, setRoster]       = useState<RosterData>({});
-  const [loading, setLoading] = useState(true);
-  const [selectedEmp, setSelectedEmp] = useState<Employee | null>(null);
+  const [loading, setLoading]     = useState(true);
+  
+  // Replaced selectedEmp with activeSelection
+  const [activeSelection, setActiveSelection] = useState<ActiveSelection | null>(null);
   const today = todayKey();
 
   useEffect(() => {
@@ -32,8 +40,7 @@ export default function DashboardPage() {
     });
   }, []);
 
-  const empMap           = Object.fromEntries(employees.map(e => [e.id, e]));
-  const todayAssignments = roster[today] ?? [];
+  const empMap = Object.fromEntries(employees.map(e => [e.id, e]));
 
   function getShiftEmployees(shift: ShiftType, date: string = today): Employee[] {
     return (roster[date] ?? [])
@@ -48,21 +55,16 @@ export default function DashboardPage() {
     return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
   }
 
-  // For a given date, find everyone off that day and bucket them under
-  // the shift card matching their assignment the day before. If
-  // yesterday was also off (or no record), they land in an "unsorted"
-  // bucket which we render under Morning, clearly labeled.
   function getOffEmployeesByPrevShift(date: string): Record<ShiftType, Employee[]> {
     const offToday = getShiftEmployees('off', date);
     const grouped: Record<ShiftType, Employee[]> = { morning: [], evening: [], night: [], off: [] };
     const yesterday = prevDateKey(date);
 
     offToday.forEach(emp => {
-      const yesterdayAssignment = (roster[yesterday] ?? []).find(a => a.employeeId === emp.id);
+      const yesterdayAssignment = (roster[yesterday] ?? []).find(a => a.employeeId === emp.employeeId); // Used employeeId instead of id
       if (yesterdayAssignment && TODAY_SHIFTS.includes(yesterdayAssignment.shift)) {
         grouped[yesterdayAssignment.shift].push(emp);
       } else {
-        // No usable prior-day shift (back-to-back off days, or no data) — unsorted.
         grouped.off.push(emp);
       }
     });
@@ -71,7 +73,6 @@ export default function DashboardPage() {
 
   const all15Days = get15Days(today);
 
-  // Group shifts by day for the next 14 days (excluding today, which has its own section above)
   function getUpcomingDays() {
     const upcomingDates = all15Days.filter(date => date !== today);
     return upcomingDates.map(date => {
@@ -103,14 +104,16 @@ export default function DashboardPage() {
   const todayOffByShift = getOffEmployeesByPrevShift(today);
 
   function NightProgressPopover({ employee }: { employee: Employee }) {
-    const progress = getNightShiftProgress(roster, employee.id, today);
+    // Passes the actual employeeId to match the roster logic perfectly
+    const progress = getNightShiftProgress(roster, employee.employeeId, today);
+    
     return (
       <div
         className="absolute left-0 top-full mt-1 z-30 w-56 card p-3 shadow-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900"
         onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-1">
           <div className="text-xs font-semibold">{employee.name}</div>
-          <button className="text-gray-400 hover:text-gray-600 text-xs" onClick={() => setSelectedEmp(null)}>✕</button>
+          <button className="text-gray-400 hover:text-gray-600 text-xs" onClick={() => setActiveSelection(null)}>✕</button>
         </div>
         <div className="text-[10px] text-gray-400 mb-2">
           {new Date(progress.year, progress.month - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })} · Night Shifts
@@ -140,12 +143,14 @@ export default function DashboardPage() {
     );
   }
 
-  function EmployeeRow({ emp, muted = false }: { emp: Employee; muted?: boolean }) {
-    const isSelected = selectedEmp?.id === emp.id;
+  function EmployeeRow({ emp, scopeKey, muted = false }: { emp: Employee; scopeKey: string; muted?: boolean }) {
+    // Checks both ID and the unique location key to determine if it should open
+    const isSelected = activeSelection?.employeeId === emp.employeeId && activeSelection?.scopeKey === scopeKey;
+    
     return (
       <div
         className="relative flex items-center gap-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/40 rounded-lg -mx-1 px-1 py-0.5"
-        onClick={() => setSelectedEmp(isSelected ? null : emp)}>
+        onClick={() => setActiveSelection(isSelected ? null : { employeeId: emp.employeeId, scopeKey })}>
         <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0
           ${muted ? 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300'}`}>
           {emp.name.charAt(0)}
@@ -159,7 +164,7 @@ export default function DashboardPage() {
     );
   }
 
-  function ShiftCard({ shift, employees, offEmployees }: { shift: ShiftType; employees: Employee[]; offEmployees: Employee[] }) {
+  function ShiftCard({ date, shift, employees, offEmployees }: { date: string; shift: ShiftType; employees: Employee[]; offEmployees: Employee[] }) {
     const info = SHIFT_INFO[shift];
     return (
       <div className="card overflow-visible">
@@ -178,7 +183,7 @@ export default function DashboardPage() {
           ) : (
             <div className="space-y-2">
               {employees.map(emp => (
-                <EmployeeRow key={emp.id} emp={emp} />
+                <EmployeeRow key={emp.id} emp={emp} scopeKey={`${date}-${shift}`} />
               ))}
             </div>
           )}
@@ -187,7 +192,7 @@ export default function DashboardPage() {
             <div className="pt-2 border-t border-gray-100 dark:border-gray-800 space-y-2">
               <div className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">🛌 Off Today</div>
               {offEmployees.map(emp => (
-                <EmployeeRow key={emp.id} emp={emp} muted />
+                <EmployeeRow key={emp.id} emp={emp} scopeKey={`${date}-${shift}-off`} muted />
               ))}
             </div>
           )}
@@ -196,7 +201,7 @@ export default function DashboardPage() {
     );
   }
 
-  function UnsortedOffCard({ employees }: { employees: Employee[] }) {
+  function UnsortedOffCard({ date, employees }: { date: string; employees: Employee[] }) {
     if (employees.length === 0) return null;
     return (
       <div className="card overflow-visible border border-dashed border-gray-300 dark:border-gray-700">
@@ -207,7 +212,7 @@ export default function DashboardPage() {
           <div className="flex flex-wrap gap-3">
             {employees.map(emp => (
               <div key={emp.id} className="relative">
-                <EmployeeRow emp={emp} muted />
+                <EmployeeRow emp={emp} scopeKey={`${date}-unsorted`} muted />
               </div>
             ))}
           </div>
@@ -227,13 +232,14 @@ export default function DashboardPage() {
         {TODAY_SHIFTS.map(shift => (
           <ShiftCard
             key={shift}
+            date={today}
             shift={shift}
             employees={getShiftEmployees(shift)}
             offEmployees={todayOffByShift[shift]}
           />
         ))}
       </div>
-      <UnsortedOffCard employees={todayOffByShift.off} />
+      <UnsortedOffCard date={today} employees={todayOffByShift.off} />
 
       <div className="space-y-8">
         <h2 className="text-lg font-semibold">Upcoming Shifts (Next 14 Days)</h2>
@@ -245,10 +251,10 @@ export default function DashboardPage() {
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {day.shifts.map(({ shift, employees, offEmployees }) => (
-                <ShiftCard key={`${day.date}-${shift}`} shift={shift} employees={employees} offEmployees={offEmployees} />
+                <ShiftCard key={`${day.date}-${shift}`} date={day.date} shift={shift} employees={employees} offEmployees={offEmployees} />
               ))}
             </div>
-            <UnsortedOffCard employees={day.unsortedOff} />
+            <UnsortedOffCard date={day.date} employees={day.unsortedOff} />
           </div>
         ))}
       </div>
