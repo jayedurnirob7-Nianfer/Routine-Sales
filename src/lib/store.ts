@@ -54,7 +54,7 @@ function toEmployee(e: Record<string, unknown>): Employee {
     name:         String(e.name         ?? ''),
     employeeId:   String(e.employeeId   ?? ''),
     role:         String(e.role         ?? ''),
-    active:       true, // ✅ FORCED TRUE to prevent Roster from disappearing!
+    active:       true,
     createdAt:    toISODate(String(e.createdAt ?? '')),
     weeklyOffDay: typeof e.weeklyOffDay === 'number' ? e.weeklyOffDay : (e.weeklyOffDay ? parseInt(String(e.weeklyOffDay), 10) : undefined),
     defaultShift: (e.defaultShift as ShiftType) || 'morning',
@@ -151,24 +151,18 @@ export async function saveEmployees(employees: Employee[]): Promise<void> {
   await apiPost('saveEmployees', { employees });
   if (memCache) { memCache = { ...memCache, employees }; lsSet(LS_KEY, memCache); }
 }
-
 export async function saveRoster(roster: RosterData): Promise<void> {
   await apiPost('saveRoster', { roster });
   if (memCache) { memCache = { ...memCache, roster }; lsSet(LS_KEY, memCache); }
 }
-
 export async function saveSiteSettings(settings: SiteSettings): Promise<void> {
   await apiPost('saveSettings', { settings });
   if (memCache) { memCache = { ...memCache, settings }; lsSet(LS_KEY, memCache); }
 }
-
 export async function saveAdminCreds(creds: AdminCredentials): Promise<void> {
   await apiPost('saveAuth', { auth: creds });
   if (memCache) { memCache = { ...memCache, auth: creds }; lsSet(LS_KEY, memCache); }
 }
-
-// ─── ROBUST ID HELPERS ───────────────────────────────────────────
-// These functions check BOTH employee.id and employee.employeeId
 
 export function getAssignment(roster: RosterData, employee: Employee, date: string): ShiftAssignment | undefined {
   return (roster[date] ?? []).find(a => a.employeeId === employee.id || a.employeeId === employee.employeeId);
@@ -178,7 +172,6 @@ export function upsertAssignmentLocal(roster: RosterData, date: string, assignme
   const others = (roster[date] ?? []).filter(a => a.employeeId !== assignment.employeeId);
   return { ...roster, [date]: [...others, assignment] };
 }
-
 export async function upsertAssignment(roster: RosterData, date: string, assignment: ShiftAssignment): Promise<RosterData> {
   const next = upsertAssignmentLocal(roster, date, assignment);
   await saveRoster(next);
@@ -186,8 +179,7 @@ export async function upsertAssignment(roster: RosterData, date: string, assignm
 }
 
 export async function applyWeeklyOffDay(
-  roster: RosterData, employee: Employee,
-  offWeekday: number, year: number, month: number, startDay = 1
+  roster: RosterData, employee: Employee, offWeekday: number, year: number, month: number, startDay = 1
 ): Promise<RosterData> {
   const days = new Date(year, month, 0).getDate();
   let updated = { ...roster };
@@ -205,12 +197,10 @@ export async function applyWeeklyOffDay(
 }
 
 export async function overrideSingleDay(
-  roster: RosterData, employee: Employee,
-  date: string, shift: ShiftType, reason?: string,
+  roster: RosterData, employee: Employee, date: string, shift: ShiftType, reason?: string,
 ): Promise<RosterData> {
   return upsertAssignment(roster, date, {
-    employeeId: employee.id,
-    shift, effectiveFrom: date, effectiveTo: date, reason, isOffDayOverride: true,
+    employeeId: employee.id, shift, effectiveFrom: date, effectiveTo: date, reason, isOffDayOverride: true,
   });
 }
 
@@ -241,7 +231,6 @@ export function getActiveLeave(roster: RosterData, employee: Employee): LeaveRec
   return null;
 }
 
-// ─── Date utilities ───────────────────────────────────────────────
 export function getEffectiveDate(inputDate?: Date): Date {
   const date = inputDate || new Date();
   const utc = date.getTime() + (date.getTimezoneOffset() * 60000);
@@ -266,11 +255,9 @@ export function get15Days(startDate: string): string[] {
 export function formatDate(dateStr: string): string {
   return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 }
-
 export function formatDateFull(dateStr: string): string {
   return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 }
-
 export function getWeekdayDatesInMonth(year: number, month: number, weekday: number): string[] {
   const dates: string[] = [];
   const days = new Date(year, month, 0).getDate();
@@ -281,45 +268,50 @@ export function getWeekdayDatesInMonth(year: number, month: number, weekday: num
   return dates;
 }
 
-// ─── Night Shift Progress ─────────────────────────────────────────
+// ✅ REWRITTEN: Now perfectly bounds the calculation using exact 'effectiveFrom' / 'effectiveTo' block
 export function getNightShiftProgress(
   roster: RosterData, employee: Employee, selectedDate: string = todayKey(),
 ) {
-  function shiftOn(dateStr: string): ShiftType | null {
-    const a = getAssignment(roster, employee, dateStr);
-    return a ? a.shift : null;
-  }
-  function isLeave(dateStr: string) { return isOnLeave(roster, employee, dateStr); }
   function offsetDate(dateStr: string, days: number): string {
     const [y, m, d] = dateStr.split('-').map(Number);
     const dt = new Date(y, m - 1, d + days);
     return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
   }
-  function isInBlock(dateStr: string) {
-    const s = shiftOn(dateStr); return s === 'night' || s === 'off';
+
+  let blockAssignment: ShiftAssignment | null = null;
+  const current = getAssignment(roster, employee, selectedDate);
+  
+  if (current?.shift === 'night') {
+    blockAssignment = current;
+  } else if (current?.shift === 'off' || !current) {
+    for (let i = 1; i <= 7; i++) {
+      const prevDate = offsetDate(selectedDate, -i);
+      const prev = getAssignment(roster, employee, prevDate);
+      if (prev?.shift === 'night') { blockAssignment = prev; break; }
+      else if (prev && prev.shift !== 'off') break;
+    }
+    if (!blockAssignment) {
+      for (let i = 1; i <= 7; i++) {
+        const nextDate = offsetDate(selectedDate, i);
+        const next = getAssignment(roster, employee, nextDate);
+        if (next?.shift === 'night') { blockAssignment = next; break; }
+        else if (next && next.shift !== 'off') break;
+      }
+    }
   }
 
-  if (!isInBlock(selectedDate)) {
+  if (!blockAssignment || blockAssignment.shift !== 'night') {
     const dt = new Date(selectedDate + 'T00:00:00');
     return { rangeFrom: dt, rangeTo: dt, totalNights: 0, completedNights: 0, remainingNights: 0 };
   }
 
-  let blockStart = selectedDate;
-  for (let i = 1; i <= 366; i++) {
-    const prev = offsetDate(selectedDate, -i);
-    if (!isInBlock(prev)) break;
-    blockStart = prev;
-  }
-  let blockEnd = selectedDate;
-  for (let i = 1; i <= 366; i++) {
-    const next = offsetDate(selectedDate, i);
-    if (!isInBlock(next)) break;
-    blockEnd = next;
-  }
+  const blockStart = blockAssignment.effectiveFrom || selectedDate;
+  const blockEnd = blockAssignment.effectiveTo || selectedDate;
 
   let completedNights = 0, remainingNights = 0, cur = blockStart;
   while (cur <= blockEnd) {
-    if (shiftOn(cur) === 'night' && !isLeave(cur)) {
+    const s = getAssignment(roster, employee, cur)?.shift;
+    if (s === 'night' && !isOnLeave(roster, employee, cur)) {
       if (cur <= selectedDate) completedNights++;
       else remainingNights++;
     }
