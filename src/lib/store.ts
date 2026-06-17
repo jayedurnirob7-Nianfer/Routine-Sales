@@ -3,7 +3,7 @@ import {
   ShiftInfo, ShiftType, SiteSettings, AdminCredentials, LeaveRecord
 } from '@/types';
 
-const API_URL = "https://script.google.com/macros/s/AKfycbzQ2n_G0D9e92Jv7XU_a_R71W7-xTz1u3vjZnt1L2T4a-LtsW_416m90hVv4H84LzE9/exec";
+const API_URL = "https://script.google.com/macros/s/AKfycbyRarIsbzP1lrEOzrtOapLUspxMIPNtZTOVAPQh2K9eva4yPgNA0iIxgquf5vGBcBrY/exec";
 
 export const WEEKDAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 
