@@ -80,8 +80,8 @@ export default function EmployeesPage() {
 
   async function assignLeave() {
     if (!leaveForm.fromDate || !leaveForm.toDate || !leaveModalEmp) return;
-    const f1 = new Date(leaveForm.fromDate);
-    const f2 = new Date(leaveForm.toDate);
+    const f1 = new Date(leaveForm.fromDate + 'T00:00:00');
+    const f2 = new Date(leaveForm.toDate + 'T00:00:00');
     const diffDays = Math.round((f2.getTime() - f1.getTime()) / 86400000);
     
     if (diffDays < 0) { alert('To Date must be after From Date'); return; }
@@ -93,7 +93,7 @@ export default function EmployeesPage() {
       const leaveReasonStr = `LEAVE|${leaveForm.fromDate}|${leaveForm.toDate}|${leaveForm.reason}`;
       
       for (let d = 0; d <= diffDays; d++) {
-        const dt = new Date(f1.getTime() + d * 86400000);
+        const dt = new Date(f1.getFullYear(), f1.getMonth(), f1.getDate() + d);
         const dateStr = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
         
         const others = (updatedRoster[dateStr] ?? []).filter(a => a.employeeId !== leaveModalEmp.employeeId);
@@ -110,8 +110,9 @@ export default function EmployeesPage() {
       await saveRoster(updatedRoster);
       setRoster(updatedRoster);
       setLeaveModalEmp(null);
-    } catch (err: any) {
-      alert("Failed to save leave. Error: " + err.message);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      alert("Failed to save leave. Error: " + msg);
     } finally {
       setSaving(false);
     }
@@ -122,12 +123,12 @@ export default function EmployeesPage() {
     setSaving(true);
     try {
       let updatedRoster = { ...roster };
-      const f1 = new Date(leave.fromDate);
-      const f2 = new Date(leave.toDate);
+      const f1 = new Date(leave.fromDate + 'T00:00:00');
+      const f2 = new Date(leave.toDate + 'T00:00:00');
       const diffDays = Math.round((f2.getTime() - f1.getTime()) / 86400000);
       
       for (let d = 0; d <= diffDays; d++) {
-        const dt = new Date(f1.getTime() + d * 86400000);
+        const dt = new Date(f1.getFullYear(), f1.getMonth(), f1.getDate() + d);
         const dateStr = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
         
         updatedRoster[dateStr] = (updatedRoster[dateStr] ?? []).filter(a => 
@@ -137,8 +138,9 @@ export default function EmployeesPage() {
       
       await saveRoster(updatedRoster);
       setRoster(updatedRoster);
-    } catch(e: any) {
-      alert("Failed to remove leave. Error: " + e.message);
+    } catch(e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      alert("Failed to remove leave. Error: " + msg);
     } finally {
       setSaving(false);
     }
@@ -393,7 +395,7 @@ export default function EmployeesPage() {
         <AssignShiftModal
           employee={assignTarget.emp}
           date={assignTarget.date}
-          currentShift={(roster[assignTarget.date] ?? []).find(a => a.employeeId === assignTarget.emp.id)?.shift}
+          currentShift={(roster[assignTarget.date] ?? []).find(a => a.employeeId === assignTarget.emp.employeeId)?.shift}
           roster={roster}
           onSave={(newRoster, updatedEmp) => {
             setRoster(newRoster);
