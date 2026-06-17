@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { getEmployees, getRoster, isOnLeave, getActiveLeave, SHIFT_INFO, todayKey, formatDate, get15Days, getNightShiftProgress, invalidateCache } from '@/lib/store';
+import { getEmployees, getRoster, isOnLeave, getLeaveOnDate, SHIFT_INFO, todayKey, formatDate, get15Days, getNightShiftProgress, invalidateCache } from '@/lib/store';
 import { Employee, RosterData, ShiftType } from '@/types';
 
 const TODAY_SHIFTS: ShiftType[] = ['morning', 'evening', 'night'];
@@ -45,22 +45,31 @@ export default function DashboardPage() {
 
   const empMap = Object.fromEntries(employees.map(e => [e.id, e]));
 
+  // Deduplicates arrays to fix the "Jayedur Rahman Nirob" duplication issue
+  function uniqueEmps(emps: Employee[]) {
+    const map = new Map<string, Employee>();
+    emps.forEach(e => { if (e) map.set(e.id, e); });
+    return Array.from(map.values());
+  }
+
   function getShiftEmployees(shift: ShiftType, date: string = today): Employee[] {
-    return (roster[date] ?? [])
+    const emps = (roster[date] ?? [])
       .filter(a => a.shift === shift && !a.reason?.startsWith('LEAVE|'))
       .map(a => empMap[a.employeeId] || employees.find(e => e.employeeId === a.employeeId))
       .filter(emp => emp && !isOnLeave(roster, emp, date)) as Employee[];
+    return uniqueEmps(emps);
   }
 
   function getOnLeaveEmployees(date: string = today): Employee[] {
-    return employees.filter(emp => isOnLeave(roster, emp, date));
+    return uniqueEmps(employees.filter(emp => isOnLeave(roster, emp, date)));
   }
 
   function getOffTodayEmployees(date: string = today): Employee[] {
-    return (roster[date] ?? [])
+    const emps = (roster[date] ?? [])
       .filter(a => a.shift === 'off' && !a.reason?.startsWith('LEAVE|'))
       .map(a => empMap[a.employeeId] || employees.find(e => e.employeeId === a.employeeId))
       .filter(emp => emp && !isOnLeave(roster, emp, date)) as Employee[];
+    return uniqueEmps(emps);
   }
 
   function getOffEmployeesByDefaultShift(date: string) {
@@ -136,7 +145,8 @@ export default function DashboardPage() {
 
   function NightProgressPopover({ employee, date }: { employee: Employee; date: string }) {
     const progress = getNightShiftProgress(roster, employee, date);
-    const displayLeave = getActiveLeave(roster, employee);
+    const displayLeave = getLeaveOnDate(roster, employee, date); 
+    
     const rangeLabel = progress.totalNights === 0
       ? progress.rangeFrom.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
       : `${progress.rangeFrom.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${progress.rangeTo.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
