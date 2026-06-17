@@ -120,11 +120,11 @@ export default function RosterPage() {
       </div>
 
       {/* Roster grid — scrollable horizontally */}
-      <div className="card overflow-auto">
+      <div className="card overflow-auto max-h-[70vh]">
         <table className="min-w-full text-xs">
-          <thead>
+          <thead className="sticky top-0 z-20">
             <tr className="bg-gray-50 dark:bg-gray-800">
-              <th className="sticky left-0 z-10 bg-gray-50 dark:bg-gray-800 px-4 py-3 text-left font-semibold text-gray-500 uppercase tracking-wide min-w-[160px]">
+              <th className="sticky left-0 top-0 z-30 bg-gray-50 dark:bg-gray-800 px-4 py-3 text-left font-semibold text-gray-500 uppercase tracking-wide min-w-[160px]">
                 Employee
               </th>
               {days.map(date => {
@@ -133,7 +133,7 @@ export default function RosterPage() {
                 return (
                   <th
                     key={date}
-                    className={`px-3 py-3 text-center font-medium min-w-[90px]
+                    className={`sticky top-0 z-20 bg-gray-50 dark:bg-gray-800 px-3 py-3 text-center font-medium min-w-[90px]
                       ${isToday ? 'text-teal-600 dark:text-teal-400' : isPast ? 'text-gray-300 dark:text-gray-600' : 'text-gray-500'}`}>
                     <div>{new Date(date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short' })}</div>
                     <div className={`text-sm font-bold ${isToday ? 'text-teal-600' : ''}`}>
