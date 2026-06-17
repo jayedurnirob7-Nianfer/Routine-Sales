@@ -66,7 +66,7 @@ export default function AssignShiftModal({ employee, date, currentShift, roster,
           const d = String(current.getDate()).padStart(2, '0');
           
           updated = upsertAssignmentLocal(updated, `${y}-${m}-${d}`, {
-            employeeId:    employee.employeeId,
+            employeeId:    employee.id,
             shift,
             effectiveFrom: fromDate,
             effectiveTo:   toDate,
@@ -80,6 +80,39 @@ export default function AssignShiftModal({ employee, date, currentShift, roster,
         const updatedEmp: Employee = { ...employee, defaultShift: shift };
         onSave(updated, updatedEmp);
       }
+    } finally {
+      setSaving(false);
+      onClose();
+    }
+  }
+
+  // NEW FEATURE: Clears out all shift data for the selected date range
+  async function handleClear() {
+    if (!confirm('Are you sure you want to completely remove all assigned shifts for this date range?')) return;
+    setSaving(true);
+    try {
+      const [fy, fm, fd] = fromDate.split('-').map(Number);
+      const [ty, tm, td] = toDate.split('-').map(Number);
+      const start   = new Date(fy, fm - 1, fd);
+      const end     = new Date(ty, tm - 1, td);
+      let current   = new Date(start);
+      let updated   = { ...roster };
+
+      while (current <= end) {
+        const y = current.getFullYear();
+        const m = String(current.getMonth() + 1).padStart(2, '0');
+        const d = String(current.getDate()).padStart(2, '0');
+        const dateStr = `${y}-${m}-${d}`;
+
+        // Filters out this specific employee's assignment for this day, effectively deleting it
+        const others = (updated[dateStr] ?? []).filter(a => a.employeeId !== employee.id);
+        updated = { ...updated, [dateStr]: others };
+
+        current.setDate(current.getDate() + 1);
+      }
+
+      await saveRoster(updated);
+      onSave(updated, employee);
     } finally {
       setSaving(false);
       onClose();
@@ -179,11 +212,6 @@ export default function AssignShiftModal({ employee, date, currentShift, roster,
                 </div>
                 <div className="bg-gray-50 dark:bg-gray-800 rounded-xl px-4 py-3 text-sm text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700">
                   📋 Every <strong>{WEEKDAYS[selectedWeekday]}</strong> in <strong>{monthName}</strong> will be set to <strong>Off Day</strong>. All other days → regular shift.
-                  {employee.weeklyOffDay !== undefined && employee.weeklyOffDay !== selectedWeekday && (
-                    <div className="mt-1 text-amber-600 dark:text-amber-400 text-xs">
-                      ⚠️ Previous off day ({WEEKDAYS[employee.weeklyOffDay]}) will be replaced with regular shift.
-                    </div>
-                  )}
                 </div>
               </div>
             )}
@@ -224,16 +252,26 @@ export default function AssignShiftModal({ employee, date, currentShift, roster,
             value={reason} onChange={e => setReason(e.target.value)} />
         </div>
 
-        <div className="flex gap-2 justify-end">
-          <button onClick={onClose} className="btn-ghost border border-gray-200 dark:border-gray-700">Cancel</button>
-          <button onClick={handleSave} disabled={!canSave || saving}
-            className="btn-primary disabled:opacity-40 disabled:cursor-not-allowed">
-            {saving ? 'Saving…' : shift === 'off' && offMode === 'weekly'
-              ? `Set ${WEEKDAYS[selectedWeekday]}s as Off — ${monthName}`
-              : shift === 'off' && offMode === 'single'
-              ? 'Set Off — This Day Only'
-              : 'Assign Shift'}
+        <div className="flex items-center justify-between pt-2">
+          {/* New Clear Button to wipe out historical mistakes! */}
+          <button 
+            onClick={handleClear} 
+            disabled={saving}
+            className="text-xs font-medium text-red-500 hover:text-red-700 dark:text-red-400 border border-transparent hover:border-red-200 dark:hover:border-red-900 px-3 py-2 rounded-lg transition-colors">
+            🗑️ Clear Dates
           </button>
+          
+          <div className="flex gap-2">
+            <button onClick={onClose} className="btn-ghost border border-gray-200 dark:border-gray-700">Cancel</button>
+            <button onClick={handleSave} disabled={!canSave || saving}
+              className="btn-primary disabled:opacity-40 disabled:cursor-not-allowed">
+              {saving ? 'Saving…' : shift === 'off' && offMode === 'weekly'
+                ? `Set ${WEEKDAYS[selectedWeekday]}s as Off`
+                : shift === 'off' && offMode === 'single'
+                ? 'Set Off — This Day Only'
+                : 'Assign Shift'}
+            </button>
+          </div>
         </div>
       </div>
     </div>
