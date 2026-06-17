@@ -96,9 +96,10 @@ export default function EmployeesPage() {
         const dt = new Date(f1.getFullYear(), f1.getMonth(), f1.getDate() + d);
         const dateStr = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
         
-        const others = (updatedRoster[dateStr] ?? []).filter(a => a.employeeId !== leaveModalEmp.employeeId);
+        // Exclusively use leaveModalEmp.id!
+        const others = (updatedRoster[dateStr] ?? []).filter(a => a.employeeId !== leaveModalEmp.id);
         updatedRoster[dateStr] = [...others, {
-          employeeId: leaveModalEmp.employeeId,
+          employeeId: leaveModalEmp.id,
           shift: 'off',
           effectiveFrom: dateStr,
           effectiveTo: dateStr,
@@ -146,12 +147,13 @@ export default function EmployeesPage() {
     }
   }
 
+  // FIXED: Now correctly looks up by `selected.id` instead of `selected.employeeId`!
   const upcoming15 = selected ? get15Days(todayKey()).map(date => {
-    const a = (roster[date] ?? []).find(x => x.employeeId === selected.employeeId);
+    const a = (roster[date] ?? []).find(x => x.employeeId === selected.id);
     return { date, assignment: a };
   }) : [];
 
-  const nightProgress = selected ? getNightShiftProgress(roster, selected.employeeId) : null;
+  const nightProgress = selected ? getNightShiftProgress(roster, selected.id) : null;
 
   if (loading) {
     return (
@@ -256,7 +258,7 @@ export default function EmployeesPage() {
               </div>
 
               {(() => {
-                const activeLeave = getActiveLeave(roster, selected.employeeId);
+                const activeLeave = getActiveLeave(roster, selected.id);
                 if (!activeLeave) return null;
                 return (
                   <div className="mb-4 p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800 flex items-center justify-between">
@@ -395,7 +397,7 @@ export default function EmployeesPage() {
         <AssignShiftModal
           employee={assignTarget.emp}
           date={assignTarget.date}
-          currentShift={(roster[assignTarget.date] ?? []).find(a => a.employeeId === assignTarget.emp.employeeId)?.shift}
+          currentShift={(roster[assignTarget.date] ?? []).find(a => a.employeeId === assignTarget.emp.id)?.shift}
           roster={roster}
           onSave={(newRoster, updatedEmp) => {
             setRoster(newRoster);
