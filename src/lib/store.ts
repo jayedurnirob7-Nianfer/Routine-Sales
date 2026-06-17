@@ -20,7 +20,6 @@ type CacheShape = {
   roster: RosterData;
   settings: SiteSettings;
   auth: AdminCredentials;
-  leaves: LeaveRecord[];
 };
 
 let _cache: CacheShape | null = null;
@@ -84,15 +83,6 @@ function toAssignment(a: Record<string, unknown>): ShiftAssignment {
   };
 }
 
-function toLeave(l: Record<string, unknown>): LeaveRecord {
-  return {
-    employeeId: String(l.employeeId ?? ''),
-    fromDate:   toISODate(String(l.fromDate ?? '')),
-    toDate:     toISODate(String(l.toDate   ?? '')),
-    reason:     l.reason ? String(l.reason) : undefined,
-  };
-}
-
 function toRoster(raw: Record<string, unknown[]>): RosterData {
   const out: RosterData = {};
   for (const [date, list] of Object.entries(raw)) {
@@ -135,11 +125,9 @@ export async function loadAll(): Promise<CacheShape> {
         roster:    Record<string, unknown[]>;
         settings:  Record<string, string>;
         auth:      Record<string, string>;
-        leaves?:   Record<string, unknown>[];
       };
       const employees = Array.isArray(raw.employees) && raw.employees.length > 0 ? raw.employees.map(toEmp) : [];
       const roster   = raw.roster   ? toRoster(raw.roster) : {};
-      const leaves   = Array.isArray(raw.leaves) ? raw.leaves.map(toLeave) : [];
       const settings : SiteSettings = {
         siteName  : raw.settings?.siteName   ?? 'PXL Sales Routine',
         logoEmoji : raw.settings?.logoEmoji  ?? '⬛',
@@ -149,7 +137,7 @@ export async function loadAll(): Promise<CacheShape> {
         username: raw.auth?.username ?? 'admin',
         password: raw.auth?.password ?? 'admin123',
       };
-      _cache = { employees, roster, settings, auth, leaves };
+      _cache = { employees, roster, settings, auth };
       return _cache;
     } catch (e) {
       _loadPromise = null;
@@ -166,7 +154,6 @@ export function invalidateCache(): void {
 
 export async function getEmployees(): Promise<Employee[]> { return (await loadAll()).employees; }
 export async function getRoster(): Promise<RosterData> { return (await loadAll()).roster; }
-export async function getLeaves(): Promise<LeaveRecord[]> { return (await loadAll()).leaves; }
 export async function getSiteSettings(): Promise<SiteSettings> { return (await loadAll()).settings; }
 export async function getAdminCreds(): Promise<AdminCredentials> { return (await loadAll()).auth; }
 
@@ -178,11 +165,6 @@ export async function saveEmployees(employees: Employee[]): Promise<void> {
 export async function saveRoster(roster: RosterData): Promise<void> {
   if (_cache) _cache.roster = roster;
   await apiPost({ action: 'saveRoster', roster });
-}
-
-export async function saveLeaves(leaves: LeaveRecord[]): Promise<void> {
-  if (_cache) _cache.leaves = leaves;
-  await apiPost({ action: 'saveLeaves', leaves });
 }
 
 export async function saveSiteSettings(settings: SiteSettings): Promise<void> {
@@ -241,14 +223,36 @@ export async function overrideSingleDay(
   });
 }
 
-export function isOnLeave(leaves: LeaveRecord[], employeeId: string, dateStr: string): boolean {
-  return leaves.some(l => l.employeeId === employeeId && dateStr >= l.fromDate && dateStr <= l.toDate);
+// Leaves are now stored perfectly inside the Roster data with a special reason tag!
+export function getLeaveOnDate(roster: RosterData, employeeId: string, dateStr: string): LeaveRecord | null {
+  const a = (roster[dateStr] ?? []).find(x => x.employeeId === employeeId && x.reason?.startsWith('LEAVE|'));
+  if (a) {
+    const parts = a.reason!.split('|');
+    return { employeeId, fromDate: parts[1], toDate: parts[2], reason: parts[3] || undefined };
+  }
+  return null;
 }
 
-export function getActiveLeave(leaves: LeaveRecord[], employeeId: string): LeaveRecord | null {
+export function isOnLeave(roster: RosterData, employeeId: string, dateStr: string): boolean {
+  return !!getLeaveOnDate(roster, employeeId, dateStr);
+}
+
+export function getActiveLeave(roster: RosterData, employeeId: string): LeaveRecord | null {
   const today = todayKey();
-  const active = leaves.find(l => l.employeeId === employeeId && l.toDate >= today);
-  return active || null;
+  for (let i = -3; i <= 31; i++) {
+    const dt = new Date(new Date(today + 'T00:00:00').getTime() + i * 86400000);
+    const dateStr = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+    
+    const a = (roster[dateStr] ?? []).find(x => x.employeeId === employeeId && x.reason?.startsWith('LEAVE|'));
+    if (a) {
+      const parts = a.reason!.split('|');
+      const toDate = parts[2];
+      if (toDate >= today) {
+        return { employeeId, fromDate: parts[1], toDate: parts[2], reason: parts[3] || undefined };
+      }
+    }
+  }
+  return null;
 }
 
 // Switches "today" at exactly 7 AM BDT (UTC+6)
@@ -299,7 +303,6 @@ export function getDateAssignments(roster: RosterData, date: string): ShiftAssig
 
 export function getNightShiftProgress(
   roster: RosterData,
-  leaves: LeaveRecord[],
   employeeId: string,
   selectedDate: string = todayKey(),
 ): {
@@ -315,7 +318,7 @@ export function getNightShiftProgress(
   }
 
   function isLeave(dateStr: string): boolean {
-    return isOnLeave(leaves, employeeId, dateStr);
+    return isOnLeave(roster, employeeId, dateStr);
   }
 
   function offsetDate(dateStr: string, days: number): string {
