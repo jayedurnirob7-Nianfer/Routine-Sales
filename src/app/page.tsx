@@ -1,6 +1,5 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { getEmployees, getRoster, isOnLeave, getActiveLeave, SHIFT_INFO, todayKey, formatDate, get15Days, getNightShiftProgress } from '@/lib/store';
 import { Employee, RosterData, ShiftType } from '@/types';
 
@@ -17,7 +16,6 @@ const shiftIcons: Record<string, string> = {
 };
 
 export default function DashboardPage() {
-  const router = useRouter();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [roster, setRoster]       = useState<RosterData>({});
   const [loading, setLoading] = useState(true);
