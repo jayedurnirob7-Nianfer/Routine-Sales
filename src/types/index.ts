@@ -16,8 +16,8 @@ export interface Employee {
   role: string;
   active: boolean;
   createdAt: string;
-  weeklyOffDay?: number; // 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
-  defaultShift?: ShiftType; // their regular shift on non-off days
+  weeklyOffDay?: number; 
+  defaultShift?: ShiftType; 
 }
 
 export interface ShiftAssignment {
@@ -26,10 +26,9 @@ export interface ShiftAssignment {
   effectiveFrom: string;
   effectiveTo: string;
   reason?: string;
-  isOffDayOverride?: boolean; // true = single day override, doesn't affect weekly pattern
+  isOffDayOverride?: boolean;
 }
 
-// key: YYYY-MM-DD
 export type RosterData = Record<string, ShiftAssignment[]>;
 
 export interface SiteSettings {
@@ -39,6 +38,13 @@ export interface SiteSettings {
 }
 
 export interface AdminCredentials {
-  username: string;
-  password: string;
+  username?: string;
+  password?: string;
+}
+
+export interface LeaveRecord {
+  employeeId: string;
+  fromDate: string;
+  toDate: string;
+  reason?: string;
 }
