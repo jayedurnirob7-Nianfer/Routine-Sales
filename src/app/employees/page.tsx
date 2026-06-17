@@ -1,29 +1,30 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
-import { getEmployees, saveEmployees, getRoster, saveRoster, getActiveLeave, SHIFT_INFO, get15Days, todayKey, invalidateCache, getNightShiftProgress } from '@/lib/store';
-import { Employee, RosterData, LeaveRecord } from '@/types';
+import { getEmployees, saveEmployees, getRoster, saveRoster, getActiveLeave, SHIFT_INFO, get15Days, todayKey, invalidateCache, getNightShiftProgress, getAssignment } from '@/lib/store';
+import { Employee, RosterData, ShiftType } from '@/types';
 import { useAuth } from '@/lib/auth';
 import ShiftBadge from '@/components/shared/ShiftBadge';
 import AssignShiftModal from '@/components/shared/AssignShiftModal';
-
-const blank = () => ({ name: '', employeeId: '', role: '', active: true });
 
 export default function EmployeesPage() {
   const { isAdmin } = useAuth();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [roster, setRoster]       = useState<RosterData>({});
-  const [search, setSearch]       = useState('');
-  const [editing, setEditing]     = useState<Employee | null>(null);
-  const [form, setForm]           = useState(blank());
-  const [showModal, setShowModal] = useState(false);
-  const [selected, setSelected]   = useState<Employee | null>(null);
-  const [assignTarget, setAssignTarget] = useState<{ emp: Employee; date: string } | null>(null);
-  const [leaveModalEmp, setLeaveModalEmp] = useState<Employee | null>(null);
-  const [leaveForm, setLeaveForm] = useState({ fromDate: todayKey(), toDate: todayKey(), reason: '' });
   const [loading, setLoading]     = useState(true);
-  const [saving, setSaving]       = useState(false);
   const [error, setError]         = useState<string | null>(null);
-  const [detailTab, setDetailTab] = useState<'upcoming' | 'nights'>('upcoming');
+
+  const [search, setSearch]       = useState('');
+  const [selected, setSelected]   = useState<Employee | null>(null);
+  const [isAdding, setIsAdding]   = useState(false);
+  const [editing, setEditing]     = useState<Employee | null>(null);
+  const [saving, setSaving]       = useState(false);
+
+  const blank = () => ({ name: '', employeeId: '', role: '', defaultShift: 'morning' as ShiftType });
+  const [form, setForm] = useState(blank());
+
+  const [leaveModal, setLeaveModal] = useState<{ emp: Employee } | null>(null);
+  const [leaveForm, setLeaveForm]   = useState({ fromDate: todayKey(), toDate: todayKey(), reason: '' });
+  const [assignTarget, setAssignTarget] = useState<{ emp: Employee; date: string } | null>(null);
 
   const load = useCallback(async (forceRefresh = false) => {
     setLoading(true);
@@ -43,123 +44,119 @@ export default function EmployeesPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  const filtered = employees.filter(e =>
-    e.name.toLowerCase().includes(search.toLowerCase()) ||
-    e.employeeId.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = employees.filter(e => search === '' || e.name.toLowerCase().includes(search.toLowerCase()) || e.employeeId.toLowerCase().includes(search.toLowerCase()));
 
-  function openAdd() { setEditing(null); setForm(blank()); setShowModal(true); }
   function openEdit(emp: Employee) {
     setEditing(emp);
-    setForm({ name: emp.name, employeeId: emp.employeeId, role: emp.role, active: emp.active });
-    setShowModal(true);
+    setForm({ name: emp.name, employeeId: emp.employeeId, role: emp.role, defaultShift: emp.defaultShift || 'morning' });
+    setIsAdding(true);
   }
 
   async function save() {
-    if (!form.name || !form.employeeId) return;
+    if (!form.name || !form.employeeId || !form.role) return alert('Fill required fields');
     setSaving(true);
-    let updated: Employee[];
-    if (editing) {
-      updated = employees.map(e => e.id === editing.id ? { ...editing, ...form } : e);
-    } else {
-      updated = [...employees, { id: Date.now().toString(), createdAt: new Date().toISOString().split('T')[0], ...form }];
+    try {
+      let updated: Employee[];
+      if (editing) {
+        updated = employees.map(e => e.id === editing.id ? { ...editing, ...form } : e);
+      } else {
+        updated = [...employees, { id: Date.now().toString(), createdAt: new Date().toISOString().split('T')[0], active: true, ...form }];
+      }
+      await saveEmployees(updated);
+      setEmployees(updated);
+      if (editing && selected?.id === editing.id) {
+        setSelected(updated.find(e => e.id === editing.id) || null);
+      }
+      setIsAdding(false);
+      setEditing(null);
+    } catch (e: unknown) {
+      alert(`Save failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
+    } finally {
+      setSaving(false);
     }
-    await saveEmployees(updated);
-    setEmployees(updated);
-    setShowModal(false);
-    setSaving(false);
   }
 
   async function remove(id: string) {
-    if (!confirm('Remove this employee?')) return;
-    const updated = employees.filter(e => e.id !== id);
-    await saveEmployees(updated);
-    setEmployees(updated);
-    if (selected?.id === id) setSelected(null);
-  }
-
-  async function assignLeave() {
-    if (!leaveForm.fromDate || !leaveForm.toDate || !leaveModalEmp) return;
-    const f1 = new Date(leaveForm.fromDate + 'T00:00:00');
-    const f2 = new Date(leaveForm.toDate + 'T00:00:00');
-    const diffDays = Math.round((f2.getTime() - f1.getTime()) / 86400000);
-    
-    if (diffDays < 0) { alert('To Date must be after From Date'); return; }
-    if (diffDays > 31) { alert('Leave can be a maximum of 31 days'); return; }
-
+    if (!confirm('Are you sure you want to completely remove this employee?')) return;
     setSaving(true);
     try {
-      let updatedRoster = { ...roster };
-      const leaveReasonStr = `LEAVE|${leaveForm.fromDate}|${leaveForm.toDate}|${leaveForm.reason}`;
+      const updated = employees.filter(e => e.id !== id);
+      await saveEmployees(updated);
+      setEmployees(updated);
+      if (selected?.id === id) setSelected(null);
+    } catch (e: unknown) {
+      alert(`Remove failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveLeave() {
+    if (!leaveModal) return;
+    setSaving(true);
+    try {
+      let next = { ...roster };
+      const start = new Date(leaveForm.fromDate + 'T00:00:00');
+      const end = new Date(leaveForm.toDate + 'T00:00:00');
       
-      for (let d = 0; d <= diffDays; d++) {
-        const dt = new Date(f1.getFullYear(), f1.getMonth(), f1.getDate() + d);
-        const dateStr = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
-        
-        // Exclusively use leaveModalEmp.id!
-        const others = (updatedRoster[dateStr] ?? []).filter(a => a.employeeId !== leaveModalEmp.id);
-        updatedRoster[dateStr] = [...others, {
-          employeeId: leaveModalEmp.id,
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+        const others = (next[dateStr] ?? []).filter(a => a.employeeId !== leaveModal.emp.id && a.employeeId !== leaveModal.emp.employeeId);
+        next[dateStr] = [...others, {
+          employeeId: leaveModal.emp.id,
           shift: 'off',
           effectiveFrom: dateStr,
           effectiveTo: dateStr,
-          reason: leaveReasonStr,
+          reason: `LEAVE|${leaveForm.fromDate}|${leaveForm.toDate}|${leaveForm.reason}`,
           isOffDayOverride: true,
         }];
       }
-      
-      await saveRoster(updatedRoster);
-      setRoster(updatedRoster);
-      setLeaveModalEmp(null);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      alert("Failed to save leave. Error: " + msg);
+      await saveRoster(next);
+      setRoster(next);
+      setLeaveModal(null);
+    } catch (e: unknown) {
+      alert(`Failed to save leave: ${e instanceof Error ? e.message : 'Unknown error'}`);
     } finally {
       setSaving(false);
     }
   }
 
-  async function removeLeave(leave: LeaveRecord) {
-    if (!confirm('Remove this leave?')) return;
+  async function removeLeave(leave: { employeeId: string, fromDate: string, toDate: string }) {
+    if (!confirm('Cancel this leave?')) return;
     setSaving(true);
     try {
-      let updatedRoster = { ...roster };
-      const f1 = new Date(leave.fromDate + 'T00:00:00');
-      const f2 = new Date(leave.toDate + 'T00:00:00');
-      const diffDays = Math.round((f2.getTime() - f1.getTime()) / 86400000);
+      let next = { ...roster };
+      const start = new Date(leave.fromDate + 'T00:00:00');
+      const end = new Date(leave.toDate + 'T00:00:00');
       
-      for (let d = 0; d <= diffDays; d++) {
-        const dt = new Date(f1.getFullYear(), f1.getMonth(), f1.getDate() + d);
-        const dateStr = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
-        
-        updatedRoster[dateStr] = (updatedRoster[dateStr] ?? []).filter(a => 
-           !(a.employeeId === leave.employeeId && a.reason?.startsWith('LEAVE|'))
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        const date = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+        const updatedList = (next[date] ?? []).filter(a =>
+          !( (a.employeeId === leave.employeeId || a.employeeId === selected?.employeeId) && a.reason?.startsWith('LEAVE|') )
         );
+        next[date] = updatedList;
       }
-      
-      await saveRoster(updatedRoster);
-      setRoster(updatedRoster);
-    } catch(e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      alert("Failed to remove leave. Error: " + msg);
+      await saveRoster(next);
+      setRoster(next);
+    } catch (e: unknown) {
+      alert(`Failed to cancel leave: ${e instanceof Error ? e.message : 'Unknown error'}`);
     } finally {
       setSaving(false);
     }
   }
 
-  // FIXED: Now correctly looks up by `selected.id` instead of `selected.employeeId`!
   const upcoming15 = selected ? get15Days(todayKey()).map(date => {
-    const a = (roster[date] ?? []).find(x => x.employeeId === selected.id);
+    const a = getAssignment(roster, selected, date);
     return { date, assignment: a };
   }) : [];
 
-  const nightProgress = selected ? getNightShiftProgress(roster, selected.id) : null;
+  const nightProgress = selected ? getNightShiftProgress(roster, selected) : null;
 
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center space-y-3">
-          <div className="animate-spin text-4xl">⟳</div>
+          <div className="animate-spin text-4xl">⏳</div>
           <p className="text-gray-400 text-sm">Loading from Google Sheets…</p>
         </div>
       </div>
@@ -173,221 +170,212 @@ export default function EmployeesPage() {
           <div className="text-4xl">⚠️</div>
           <p className="text-red-500 font-medium">Could not load data</p>
           <p className="text-gray-400 text-sm">{error}</p>
-          <button
-            onClick={() => load(true)}
-            className="btn-primary text-sm">
-            Retry
-          </button>
+          <button onClick={() => load(true)} className="btn-primary text-sm">Retry</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (isAdding) {
+    return (
+      <div className="flex justify-center">
+        <div className="card p-6 w-full max-w-md space-y-4">
+          <h2 className="font-semibold text-lg">{editing ? 'Edit Employee' : 'Add Employee'}</h2>
+          {(['name', 'employeeId', 'role'] as const).map(field => (
+            <div key={field}>
+              <label className="block text-sm font-medium mb-1">{field === 'employeeId' ? 'Employee ID' : field.charAt(0).toUpperCase() + field.slice(1)}</label>
+              <input className="input" value={form[field]} onChange={e => setForm({ ...form, [field]: e.target.value })} />
+            </div>
+          ))}
+          <div>
+            <label className="block text-sm font-medium mb-1">Default Shift</label>
+            <select className="input" value={form.defaultShift} onChange={e => setForm({ ...form, defaultShift: e.target.value as ShiftType })}>
+              {Object.keys(SHIFT_INFO).filter(k => k !== 'off').map(s => (
+                <option key={s} value={s}>{SHIFT_INFO[s as ShiftType].label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex gap-2 pt-4">
+            <button className="btn-primary flex-1" onClick={save} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
+            <button className="btn-ghost flex-1 border border-gray-200 dark:border-gray-700" onClick={() => { setIsAdding(false); setEditing(null); }} disabled={saving}>Cancel</button>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold">Employees</h1>
-        <div className="flex gap-2">
-          <input className="input w-56" placeholder="Search name or ID…" value={search} onChange={e => setSearch(e.target.value)} />
-          <button
-            className="btn-ghost text-xs border border-gray-200 dark:border-gray-700"
-            onClick={() => load(true)}
-            title="Refresh from Google Sheets">
-            ↻ Refresh
-          </button>
-          {isAdmin && <button className="btn-primary" onClick={openAdd}>+ Add Employee</button>}
+    <div className="flex flex-col md:flex-row gap-6 h-[calc(100vh-6rem)]">
+      {/* Left List */}
+      <div className="w-full md:w-80 flex flex-col gap-4">
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-bold">Team</h1>
+          {isAdmin && <button className="btn-primary text-xs py-1.5" onClick={() => { setForm(blank()); setIsAdding(true); }}>+ Add</button>}
+        </div>
+        <div className="flex items-center gap-2">
+          <input className="input flex-1" placeholder="Search employees..." value={search} onChange={e => setSearch(e.target.value)} />
+          <button className="btn-ghost text-xs border border-gray-200 dark:border-gray-700 px-3" onClick={() => load(true)} title="Refresh">↻</button>
+        </div>
+        <div className="card flex-1 overflow-auto p-2 space-y-1">
+          {filtered.length === 0 && <p className="text-gray-400 text-sm text-center mt-4">No employees found.</p>}
+          {filtered.map(emp => (
+            <button key={emp.id} onClick={() => setSelected(emp)} className={`w-full text-left px-4 py-3 rounded-xl transition-all flex items-center justify-between ${selected?.id === emp.id ? 'bg-teal-50 dark:bg-teal-900/30 ring-1 ring-teal-500/50' : 'hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
+              <div>
+                <div className="font-medium text-sm">{emp.name}</div>
+                <div className="text-xs text-gray-500 mt-0.5">{emp.employeeId} · {emp.role}</div>
+              </div>
+              <div className="text-gray-300 text-lg">›</div>
+            </button>
+          ))}
         </div>
       </div>
 
-      <div className="grid md:grid-cols-2 gap-4">
-        <div className="card overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 dark:bg-gray-800 text-xs uppercase tracking-wide text-gray-500">
-              <tr>
-                <th className="px-4 py-3 text-left">Employee</th>
-                {isAdmin && <th className="px-4 py-3 text-left">Actions</th>}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-              {filtered.map(emp => (
-                <tr key={emp.id}
-                  onClick={() => setSelected(selected?.id === emp.id ? null : emp)}
-                  className={`cursor-pointer transition-colors ${selected?.id === emp.id ? 'bg-teal-50 dark:bg-teal-900/20' : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'}`}>
-                  <td className="px-4 py-3">
-                    <div className="font-medium">{emp.name}</div>
-                    <div className="text-xs text-gray-400">{emp.employeeId} · {emp.role}</div>
-                  </td>
-                  {isAdmin && (
-                    <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
-                      <div className="flex gap-1">
-                        <button className="btn-ghost text-xs" onClick={() => openEdit(emp)}>Edit</button>
-                        <button className="btn-danger text-xs" onClick={() => remove(emp.id)}>✕</button>
-                      </div>
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {filtered.length === 0 && <p className="text-center py-8 text-gray-400 text-sm">No employees found.</p>}
-        </div>
-
-        <div className="card p-4">
-          {selected ? (
-            <>
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h2 className="font-semibold">{selected.name}</h2>
-                  <p className="text-xs text-gray-500">{selected.employeeId} · {selected.role}</p>
+      {/* Right Details */}
+      <div className="flex-1 min-w-0">
+        {selected ? (
+          <div className="space-y-6 h-full flex flex-col overflow-auto pr-2 pb-10">
+            <div className="card p-6 flex flex-col sm:flex-row sm:items-start justify-between gap-4 bg-gradient-to-br from-white to-gray-50 dark:from-gray-900 dark:to-gray-800 border-t-4 border-t-teal-500 shadow-sm">
+              <div className="flex items-center gap-4">
+                <div className="w-16 h-16 rounded-full bg-teal-100 dark:bg-teal-900/40 flex items-center justify-center text-teal-600 text-2xl font-bold border-2 border-white dark:border-gray-800 shadow-md">
+                  {selected.name.charAt(0)}
                 </div>
-                {isAdmin && (
-                  <div className="flex gap-2">
-                    <button className="btn-ghost text-xs border border-gray-200 dark:border-gray-700"
-                      onClick={() => {
-                         setLeaveModalEmp(selected);
-                         setLeaveForm({ fromDate: todayKey(), toDate: todayKey(), reason: '' });
-                      }}>
-                      ✈️ Leave
-                    </button>
-                    <button className="btn-primary text-xs"
-                      onClick={() => setAssignTarget({ emp: selected, date: todayKey() })}>
-                      + Assign Shift
-                    </button>
+                <div>
+                  <h2 className="text-2xl font-bold tracking-tight">{selected.name}</h2>
+                  <div className="text-gray-500 mt-1 flex items-center gap-2">
+                    <span className="bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded text-xs font-medium">ID: {selected.employeeId}</span>
+                    <span>·</span>
+                    <span className="text-sm">{selected.role}</span>
                   </div>
-                )}
+                  <div className="text-xs text-gray-400 mt-2">Added: {new Date(selected.createdAt + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</div>
+                </div>
               </div>
+              {isAdmin && (
+                <div className="flex gap-2">
+                  <button className="btn-ghost text-xs border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm" onClick={() => openEdit(selected)}>✎ Edit</button>
+                  <button className="btn-ghost text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm" onClick={() => remove(selected.id)}>🗑 Remove</button>
+                </div>
+              )}
+            </div>
 
-              {(() => {
-                const activeLeave = getActiveLeave(roster, selected.id);
-                if (!activeLeave) return null;
-                return (
-                  <div className="mb-4 p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800 flex items-center justify-between">
-                    <div>
-                      <div className="text-sm font-semibold text-amber-800 dark:text-amber-500">✈️ On Leave</div>
-                      <div className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
-                        {new Date(activeLeave.fromDate + 'T00:00:00').toLocaleDateString()} – {new Date(activeLeave.toDate + 'T00:00:00').toLocaleDateString()}
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+              <div className="card p-6 border border-gray-100 dark:border-gray-800 shadow-sm">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2"><span className="text-lg">✈️</span> Leave Status</h3>
+                  {isAdmin && (
+                    <button className="btn-ghost text-xs text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 px-3 py-1.5 rounded-lg font-medium" onClick={() => setLeaveModal({ emp: selected })}>
+                      + Register Leave
+                    </button>
+                  )}
+                </div>
+                {(() => {
+                  const activeLeave = getActiveLeave(roster, selected);
+                  if (!activeLeave) return <p className="text-gray-400 text-sm italic bg-gray-50 dark:bg-gray-800/50 p-4 rounded-xl text-center">No upcoming or active leave.</p>;
+                  return (
+                    <div className="bg-amber-50/50 dark:bg-amber-900/10 p-5 rounded-xl border border-amber-100 dark:border-amber-900/30">
+                      <div className="font-semibold text-amber-800 dark:text-amber-400 mb-1 flex items-center gap-2">
+                        <span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span></span>
+                        Currently on Leave
+                      </div>
+                      <div className="text-sm text-amber-700 dark:text-amber-500/80 mb-3">
+                        {new Date(activeLeave.fromDate + 'T00:00:00').toLocaleDateString()} — {new Date(activeLeave.toDate + 'T00:00:00').toLocaleDateString()}
                         {activeLeave.reason && ` · ${activeLeave.reason}`}
                       </div>
-                    </div>
-                    {isAdmin && (
-                      <button className="text-xs text-red-500 font-medium hover:underline disabled:opacity-50"
-                        onClick={() => removeLeave(activeLeave)}
-                        disabled={saving}>
-                        {saving ? 'Removing...' : 'Remove'}
-                      </button>
-                    )}
-                  </div>
-                );
-              })()}
-
-              <div className="flex gap-1 mb-3 border-b border-gray-100 dark:border-gray-800">
-                <button
-                  onClick={() => setDetailTab('upcoming')}
-                  className={`px-3 py-2 text-xs font-semibold uppercase tracking-wide border-b-2 transition-colors
-                    ${detailTab === 'upcoming' ? 'border-teal-500 text-teal-600' : 'border-transparent text-gray-400 hover:text-gray-600'}`}>
-                  Upcoming 15 Days
-                </button>
-                <button
-                  onClick={() => setDetailTab('nights')}
-                  className={`px-3 py-2 text-xs font-semibold uppercase tracking-wide border-b-2 transition-colors
-                    ${detailTab === 'nights' ? 'border-teal-500 text-teal-600' : 'border-transparent text-gray-400 hover:text-gray-600'}`}>
-                  Night Shifts
-                </button>
-              </div>
-
-              {detailTab === 'upcoming' && (
-              <div className="space-y-1.5 max-h-96 overflow-y-auto">
-                {upcoming15.map(({ date, assignment }) => {
-                  const info = assignment ? SHIFT_INFO[assignment.shift] : null;
-                  const isToday = date === todayKey();
-                  const isPast  = date < todayKey();
-                  return (
-                    <div key={date}
-                      className={`flex items-center gap-3 px-3 py-2 rounded-xl text-sm
-                        ${isToday ? 'bg-teal-50 dark:bg-teal-900/20 border border-teal-200 dark:border-teal-800' : 'bg-gray-50 dark:bg-gray-800/40'}
-                        ${isPast ? 'opacity-60' : ''}`}>
-                      <div className="w-20 text-xs text-gray-500 shrink-0">
-                        {isToday ? <span className="text-teal-600 font-semibold">Today</span> : new Date(date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', weekday: 'short' })}
-                      </div>
-                      {info ? (
-                        <div className="flex items-center gap-2">
-                          <ShiftBadge shift={assignment!.shift} />
-                          {assignment!.reason?.startsWith('LEAVE|') ? (
-                            <span className="text-xs text-amber-500 font-medium">✈️ On Leave</span>
-                          ) : (
-                            <span className="text-xs text-gray-400">{info.time}</span>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-xs text-gray-300 dark:text-gray-600">Not assigned</span>
-                      )}
-                      {isAdmin && !isPast && (
-                        <button className="ml-auto text-xs text-teal-500 hover:text-teal-700"
-                          onClick={() => setAssignTarget({ emp: selected, date })}>
-                          {assignment ? 'Change' : 'Assign'}
+                      {isAdmin && (
+                        <button className="btn-primary bg-red-500 hover:bg-red-600 border-none shadow-sm text-xs px-4" onClick={() => removeLeave(activeLeave)} disabled={saving}>
+                          {saving ? 'Canceling...' : 'Cancel Leave'}
                         </button>
                       )}
                     </div>
                   );
+                })()}
+              </div>
+
+              <div className="card p-6 border border-gray-100 dark:border-gray-800 shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2"><span className="text-lg">🌙</span> Night Shift Tracker</h3>
+                </div>
+                {nightProgress && nightProgress.totalNights > 0 ? (
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-end">
+                      <div>
+                        <div className="text-3xl font-black text-purple-600 tracking-tight">{nightProgress.completedNights} <span className="text-lg font-medium text-gray-400 tracking-normal">/ {nightProgress.totalNights}</span></div>
+                        <div className="text-xs font-medium text-gray-500 uppercase tracking-wider mt-1">Completed Nights</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-2xl font-bold text-amber-500">{nightProgress.remainingNights}</div>
+                        <div className="text-xs font-medium text-gray-500 uppercase tracking-wider mt-1">Remaining</div>
+                      </div>
+                    </div>
+                    <div className="relative pt-1">
+                      <div className="overflow-hidden h-2.5 text-xs flex rounded-full bg-purple-100 dark:bg-gray-800 inset-shadow-sm">
+                        <div style={{ width: `${(nightProgress.completedNights / nightProgress.totalNights) * 100}%` }} className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-gradient-to-r from-purple-500 to-indigo-500 rounded-full"></div>
+                      </div>
+                    </div>
+                    <div className="text-xs text-gray-400 bg-gray-50 dark:bg-gray-800/50 p-2.5 rounded-lg text-center font-medium">
+                      Block: {nightProgress.rangeFrom.toLocaleDateString()} — {nightProgress.rangeTo.toLocaleDateString()}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="h-full min-h-[100px] flex items-center justify-center bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-dashed border-gray-200 dark:border-gray-700">
+                    <p className="text-gray-400 text-sm italic">No active night shift block found.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="card p-6 border border-gray-100 dark:border-gray-800 shadow-sm mt-4">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2"><span className="text-lg">📅</span> Next 15 Days</h3>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                {upcoming15.map(({ date, assignment }) => {
+                  const isToday = date === todayKey();
+                  return (
+                    <div key={date} className={`p-3 rounded-xl border transition-all hover:shadow-md cursor-pointer
+                      ${isToday ? 'bg-teal-50 dark:bg-teal-900/10 border-teal-200 dark:border-teal-800/50 shadow-sm ring-1 ring-teal-500/20' : 'bg-white dark:bg-gray-900 border-gray-100 dark:border-gray-800 hover:border-teal-300'}`}
+                      onClick={() => isAdmin && setAssignTarget({ emp: selected, date })}>
+                      <div className={`text-[10px] uppercase font-bold tracking-wider mb-0.5 ${isToday ? 'text-teal-600 dark:text-teal-400' : 'text-gray-400'}`}>
+                        {new Date(date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short' })} {isToday && '(TODAY)'}
+                      </div>
+                      <div className="text-sm font-bold text-gray-900 dark:text-gray-100 mb-2">
+                        {new Date(date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      </div>
+                      {assignment ? <ShiftBadge shift={assignment.shift} /> : <div className="text-xs text-gray-400 italic">Not assigned</div>}
+                    </div>
+                  );
                 })}
               </div>
-              )}
-
-              {detailTab === 'nights' && nightProgress && (
-                <div className="space-y-4">
-                  <div className="text-xs text-gray-400">
-                    {nightProgress.totalNights === 0 ? "No night shifts assigned this block." : `${nightProgress.rangeFrom.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${nightProgress.rangeTo.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`}
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <div className="text-center">
-                      <div className="text-3xl font-bold text-purple-600">{nightProgress.completedNights}</div>
-                      <div className="text-xs text-gray-400 mt-1">Completed</div>
-                    </div>
-                    <div className="text-2xl text-gray-300">/</div>
-                    <div className="text-center">
-                      <div className="text-3xl font-bold text-gray-400">{nightProgress.totalNights}</div>
-                      <div className="text-xs text-gray-400 mt-1">Total Assigned</div>
-                    </div>
-                    <div className="ml-auto text-center">
-                      <div className="text-2xl font-bold text-amber-500">{nightProgress.remainingNights}</div>
-                      <div className="text-xs text-gray-400 mt-1">Remaining</div>
-                    </div>
-                  </div>
-                  {nightProgress.totalNights > 0 && (
-                    <div className="w-full h-2 rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
-                      <div
-                        className="h-full bg-purple-500 transition-all"
-                        style={{ width: `${(nightProgress.completedNights / nightProgress.totalNights) * 100}%` }}
-                      />
-                    </div>
-                  )}
-                </div>
-              )}
-            </>
-          ) : (
-            <div className="flex flex-col items-center justify-center h-48 text-gray-300 dark:text-gray-600">
-              <div className="text-4xl mb-2">👆</div>
-              <p className="text-sm">Click an employee to view their upcoming shifts</p>
             </div>
-          )}
-        </div>
+          </div>
+        ) : (
+          <div className="h-full flex flex-col items-center justify-center text-gray-400 card border border-dashed border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/50">
+            <div className="text-5xl mb-4 opacity-50 grayscale">👤</div>
+            <p className="text-lg font-medium text-gray-500">Select an employee to view details</p>
+          </div>
+        )}
       </div>
 
-      {showModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="card p-6 w-full max-w-md space-y-4">
-            <h2 className="font-semibold text-lg">{editing ? 'Edit Employee' : 'Add Employee'}</h2>
-            {(['name', 'employeeId', 'role'] as const).map(field => (
-              <div key={field}>
-                <label className="block text-sm font-medium mb-1">{field === 'employeeId' ? 'Employee ID' : field.charAt(0).toUpperCase() + field.slice(1)}</label>
-                <input className="input" value={form[field]} onChange={e => setForm({ ...form, [field]: e.target.value })} />
+      {leaveModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+          <div className="card p-6 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-200">
+            <h2 className="text-xl font-bold mb-5 flex items-center gap-2">✈️ Register Leave</h2>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">From Date</label>
+                <input type="date" className="input" value={leaveForm.fromDate} onChange={e => setLeaveForm({ ...leaveForm, fromDate: e.target.value })} />
               </div>
-            ))}
-            <div className="flex gap-2 justify-end">
-              <button className="btn-ghost" onClick={() => setShowModal(false)}>Cancel</button>
-              <button className="btn-primary" onClick={save} disabled={saving}>
-                {saving ? 'Saving…' : 'Save'}
-              </button>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">To Date</label>
+                <input type="date" className="input" value={leaveForm.toDate} onChange={e => setLeaveForm({ ...leaveForm, toDate: e.target.value })} />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Reason (Optional)</label>
+                <input type="text" className="input" placeholder="e.g. Sick leave, vacation" value={leaveForm.reason} onChange={e => setLeaveForm({ ...leaveForm, reason: e.target.value })} />
+              </div>
+            </div>
+            <div className="flex gap-3 mt-8">
+              <button className="btn-primary flex-1 shadow-sm" onClick={saveLeave} disabled={saving}>{saving ? 'Saving...' : 'Confirm'}</button>
+              <button className="btn-ghost flex-1 border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800" onClick={() => setLeaveModal(null)}>Cancel</button>
             </div>
           </div>
         </div>
@@ -397,51 +385,11 @@ export default function EmployeesPage() {
         <AssignShiftModal
           employee={assignTarget.emp}
           date={assignTarget.date}
-          currentShift={(roster[assignTarget.date] ?? []).find(a => a.employeeId === assignTarget.emp.id)?.shift}
+          currentShift={getAssignment(roster, assignTarget.emp, assignTarget.date)?.shift}
           roster={roster}
-          onSave={(newRoster, updatedEmp) => {
-            setRoster(newRoster);
-            if (updatedEmp) {
-              const updated = employees.map(e => e.id === updatedEmp.id ? updatedEmp : e);
-              saveEmployees(updated);
-              setEmployees(updated);
-            }
-          }}
+          onSave={(newRoster) => { setRoster(newRoster); }}
           onClose={() => setAssignTarget(null)}
         />
-      )}
-
-      {leaveModalEmp && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="card p-6 w-full max-w-md space-y-4">
-            <h2 className="font-semibold text-lg">Assign Leave for {leaveModalEmp.name}</h2>
-            <div className="bg-amber-50 p-3 rounded text-sm text-amber-800 border border-amber-200">
-              ⚠️ Maximum of 31 days allowed. Existing shifts on these days will be replaced.
-            </div>
-            
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">From Date</label>
-                <input type="date" className="input" value={leaveForm.fromDate} onChange={e => setLeaveForm({ ...leaveForm, fromDate: e.target.value })} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">To Date</label>
-                <input type="date" className="input" value={leaveForm.toDate} onChange={e => setLeaveForm({ ...leaveForm, toDate: e.target.value })} />
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Reason (optional)</label>
-              <input type="text" className="input" placeholder="e.g. Sick, Vacation" value={leaveForm.reason} onChange={e => setLeaveForm({ ...leaveForm, reason: e.target.value })} />
-            </div>
-
-            <div className="flex gap-2 justify-end mt-4">
-              <button className="btn-ghost" onClick={() => setLeaveModalEmp(null)}>Cancel</button>
-              <button className="btn-primary bg-amber-500 hover:bg-amber-600 text-white border-0" onClick={assignLeave} disabled={saving}>
-                {saving ? 'Saving…' : 'Assign Leave'}
-              </button>
-            </div>
-          </div>
-        </div>
       )}
     </div>
   );
