@@ -1,8 +1,8 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { getEmployees, getRoster, getLeaves, isOnLeave, getActiveLeave, SHIFT_INFO, todayKey, formatDate, get15Days, getNightShiftProgress } from '@/lib/store';
-import { Employee, RosterData, LeaveRecord, ShiftType } from '@/types';
+import { getEmployees, getRoster, isOnLeave, getActiveLeave, SHIFT_INFO, todayKey, formatDate, get15Days, getNightShiftProgress } from '@/lib/store';
+import { Employee, RosterData, ShiftType } from '@/types';
 
 const TODAY_SHIFTS: ShiftType[] = ['morning', 'evening', 'night'];
 
@@ -20,7 +20,6 @@ export default function DashboardPage() {
   const router = useRouter();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [roster, setRoster]       = useState<RosterData>({});
-  const [leaves, setLeaves]       = useState<LeaveRecord[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [selectedEmp, setSelectedEmp] = useState<{ emp: Employee; date: string } | null>(null);
@@ -28,10 +27,9 @@ export default function DashboardPage() {
   const today = todayKey();
 
   useEffect(() => {
-    Promise.all([getEmployees(), getRoster(), getLeaves()]).then(([emps, ros, lvs]) => {
+    Promise.all([getEmployees(), getRoster()]).then(([emps, ros]) => {
       setEmployees(emps);
       setRoster(ros);
-      setLeaves(lvs);
       setLoading(false);
     });
   }, []);
@@ -40,7 +38,14 @@ export default function DashboardPage() {
 
   function getShiftEmployees(shift: ShiftType, date: string = today): Employee[] {
     return (roster[date] ?? [])
-      .filter(a => a.shift === shift)
+      .filter(a => a.shift === shift && !a.reason?.startsWith('LEAVE|'))
+      .map(a => empMap[a.employeeId])
+      .filter(Boolean) as Employee[];
+  }
+
+  function getOnLeaveEmployees(date: string = today): Employee[] {
+    return (roster[date] ?? [])
+      .filter(a => a.reason?.startsWith('LEAVE|'))
       .map(a => empMap[a.employeeId])
       .filter(Boolean) as Employee[];
   }
@@ -51,19 +56,27 @@ export default function DashboardPage() {
     return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
   }
 
-  function getOffEmployeesByPrevShift(date: string): Record<ShiftType, Employee[]> {
+  function getOffEmployeesByPrevShift(date: string) {
     const offToday = getShiftEmployees('off', date);
-    const grouped: Record<ShiftType, Employee[]> = { morning: [], evening: [], night: [], off: [] };
+    const onLeaveToday = getOnLeaveEmployees(date);
+    
+    const grouped: Record<string, Employee[]> = { morning: [], evening: [], night: [], off: [], leaveMorning: [], leaveEvening: [], leaveNight: [], leaveOff: [] };
     const yesterday = prevDateKey(date);
 
-    offToday.forEach(emp => {
-      const yesterdayAssignment = (roster[yesterday] ?? []).find(a => a.employeeId === emp.id);
+    const placeEmployee = (emp: Employee, isLeave: boolean) => {
+      const yesterdayAssignment = (roster[yesterday] ?? []).find(a => a.employeeId === emp.employeeId);
       if (yesterdayAssignment && TODAY_SHIFTS.includes(yesterdayAssignment.shift)) {
-        grouped[yesterdayAssignment.shift].push(emp);
+        const key = isLeave ? `leave${yesterdayAssignment.shift.charAt(0).toUpperCase() + yesterdayAssignment.shift.slice(1)}` : yesterdayAssignment.shift;
+        grouped[key].push(emp);
       } else {
-        grouped.off.push(emp);
+        const key = isLeave ? 'leaveOff' : 'off';
+        grouped[key].push(emp);
       }
-    });
+    };
+
+    offToday.forEach(emp => placeEmployee(emp, false));
+    onLeaveToday.forEach(emp => placeEmployee(emp, true));
+
     return grouped;
   }
 
@@ -76,23 +89,20 @@ export default function DashboardPage() {
       return {
         date,
         shifts: TODAY_SHIFTS.map(shift => {
-          const rawEmployees = getShiftEmployees(shift, date);
-          const workingEmployees = rawEmployees.filter(emp => !isOnLeave(leaves, emp.employeeId, date));
-          const onLeaveEmployees = rawEmployees.filter(emp => isOnLeave(leaves, emp.employeeId, date));
-          
-          const rawOffEmployees = offByShift[shift] || [];
-          const offEmployees = rawOffEmployees.filter(emp => !isOnLeave(leaves, emp.employeeId, date));
-          const offOnLeave = rawOffEmployees.filter(emp => isOnLeave(leaves, emp.employeeId, date));
+          const workingEmployees = getShiftEmployees(shift, date);
+          const key = `leave${shift.charAt(0).toUpperCase() + shift.slice(1)}`;
+          const onLeaveEmployees = offByShift[key] || [];
+          const offEmployees = offByShift[shift] || [];
 
           return {
             shift,
             employees: workingEmployees,
             offEmployees: offEmployees,
-            onLeaveEmployees: [...onLeaveEmployees, ...offOnLeave],
+            onLeaveEmployees: onLeaveEmployees,
           };
         }),
-        unsortedOff: (offByShift.off || []).filter(emp => !isOnLeave(leaves, emp.employeeId, date)),
-        unsortedLeave: (offByShift.off || []).filter(emp => isOnLeave(leaves, emp.employeeId, date)),
+        unsortedOff: offByShift.off || [],
+        unsortedLeave: offByShift.leaveOff || [],
       };
     });
   }
@@ -112,8 +122,8 @@ export default function DashboardPage() {
   const todayOffByShift = getOffEmployeesByPrevShift(today);
 
   function NightProgressPopover({ employee, date }: { employee: Employee; date: string }) {
-    const progress = getNightShiftProgress(roster, leaves, employee.employeeId, date);
-    const displayLeave = getActiveLeave(leaves, employee.employeeId);
+    const progress = getNightShiftProgress(roster, employee.employeeId, date);
+    const displayLeave = getActiveLeave(roster, employee.employeeId);
 
     const rangeLabel = progress.totalNights === 0
       ? progress.rangeFrom.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
@@ -174,7 +184,7 @@ export default function DashboardPage() {
     
     let progressBadge = null;
     if (shiftType === 'night' && !muted) {
-      const prog = getNightShiftProgress(roster, leaves, emp.employeeId, date);
+      const prog = getNightShiftProgress(roster, emp.employeeId, date);
       if (prog.totalNights > 0) {
         progressBadge = (
           <span className="ml-2 text-[10px] font-bold text-purple-700 bg-purple-100 dark:bg-purple-900/40 px-1.5 py-0.5 rounded">
@@ -295,13 +305,10 @@ export default function DashboardPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {TODAY_SHIFTS.map(shift => {
-          const rawEmployees = getShiftEmployees(shift, today);
-          const workingEmployees = rawEmployees.filter(emp => !isOnLeave(leaves, emp.employeeId, today));
-          const onLeaveEmployees = rawEmployees.filter(emp => isOnLeave(leaves, emp.employeeId, today));
-          
+          const workingEmployees = getShiftEmployees(shift, today);
           const rawOffEmployees = todayOffByShift[shift] || [];
-          const offEmployees = rawOffEmployees.filter(emp => !isOnLeave(leaves, emp.employeeId, today));
-          const offOnLeave = rawOffEmployees.filter(emp => isOnLeave(leaves, emp.employeeId, today));
+          const offEmployees = rawOffEmployees.filter(emp => !isOnLeave(roster, emp.employeeId, today));
+          const offOnLeave = rawOffEmployees.filter(emp => isOnLeave(roster, emp.employeeId, today));
 
           return (
             <ShiftCard
@@ -309,15 +316,15 @@ export default function DashboardPage() {
               shift={shift}
               employees={workingEmployees}
               offEmployees={offEmployees}
-              onLeaveEmployees={[...onLeaveEmployees, ...offOnLeave]}
+              onLeaveEmployees={offOnLeave}
               date={today}
             />
           );
         })}
       </div>
       <UnsortedOffCard 
-        employees={(todayOffByShift.off || []).filter(e => !isOnLeave(leaves, e.employeeId, today))} 
-        onLeaveEmployees={(todayOffByShift.off || []).filter(e => isOnLeave(leaves, e.employeeId, today))}
+        employees={(todayOffByShift.off || []).filter(e => !isOnLeave(roster, e.employeeId, today))} 
+        onLeaveEmployees={(todayOffByShift.leaveOff || [])}
         date={today} 
       />
 
