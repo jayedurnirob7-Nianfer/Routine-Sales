@@ -125,7 +125,6 @@ export async function upsertAssignment(roster: RosterData, date: string, assignm
   return next;
 }
 
-// FIXED THE MISSING ASYNC KEYWORD HERE!
 export async function applyWeeklyOffDay(
   roster: RosterData, employee: Employee,
   offWeekday: number, year: number, month: number, startDay: number = 1
@@ -155,7 +154,6 @@ export async function overrideSingleDay(
   });
 }
 
-// Leaves are stored perfectly inside the Roster data with a special reason tag!
 export function getLeaveOnDate(roster: RosterData, employeeId: string, dateStr: string): LeaveRecord | null {
   const a = (roster[dateStr] ?? []).find(x => x.employeeId === employeeId && x.reason?.startsWith('LEAVE|'));
   if (a) {
@@ -174,7 +172,6 @@ export function getActiveLeave(roster: RosterData, employeeId: string): LeaveRec
   for (let i = -3; i <= 31; i++) {
     const dt = new Date(new Date(today + 'T00:00:00').getTime() + i * 86400000);
     const dateStr = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
-    
     const a = (roster[dateStr] ?? []).find(x => x.employeeId === employeeId && x.reason?.startsWith('LEAVE|'));
     if (a) {
       const parts = a.reason!.split('|');
@@ -298,4 +295,39 @@ export function getNightShiftProgress(
     completedNights,
     remainingNights,
   };
+}
+
+// ─── Site Settings ────────────────────────────────────────────────
+export async function getSiteSettings(): Promise<SiteSettings> {
+  try {
+    const raw = await apiGet('getSiteSettings') as Record<string, unknown>;
+    return {
+      siteName:  String(raw.siteName  ?? 'Routine Sales'),
+      logoEmoji: String(raw.logoEmoji ?? '📋'),
+      logoImage: raw.logoImage ? String(raw.logoImage) : undefined,
+    };
+  } catch {
+    return { siteName: 'Routine Sales', logoEmoji: '📋' };
+  }
+}
+
+export async function saveSiteSettings(settings: SiteSettings): Promise<void> {
+  await apiPost('saveSiteSettings', { settings });
+}
+
+// ─── Admin Credentials ────────────────────────────────────────────
+export async function getAdminCreds(): Promise<AdminCredentials> {
+  try {
+    const raw = await apiGet('getAdminCreds') as Record<string, unknown>;
+    return {
+      username: raw.username ? String(raw.username) : undefined,
+      password: raw.password ? String(raw.password) : undefined,
+    };
+  } catch {
+    return {};
+  }
+}
+
+export async function saveAdminCreds(creds: AdminCredentials): Promise<void> {
+  await apiPost('saveAdminCreds', { creds });
 }
