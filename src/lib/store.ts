@@ -19,7 +19,6 @@ function toISODate(dateStr: string): string {
   if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr;
   const d = new Date(dateStr);
   if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
-
   const match = dateStr.match(/^(\d{1,2})\s+([a-zA-Z]{3})\s+(\d{4})$/i);
   if (match) {
     const MONTHS: Record<string, number> = {
@@ -88,7 +87,8 @@ export function invalidateCache() {
 
 export async function getEmployees(): Promise<Employee[]> {
   if (cachedEmployees) return cachedEmployees;
-  const raw = await apiGet('getEmployees') as Record<string, unknown>[];
+  // ✅ Fixed: cast through unknown first
+  const raw = await apiGet('getEmployees') as unknown as Record<string, unknown>[];
   cachedEmployees = raw.map(toEmployee);
   return cachedEmployees;
 }
@@ -100,7 +100,8 @@ export async function saveEmployees(employees: Employee[]): Promise<void> {
 
 export async function getRoster(): Promise<RosterData> {
   if (cachedRoster) return cachedRoster;
-  const raw = await apiGet('getRoster') as Record<string, unknown[]>;
+  // ✅ Fixed: cast through unknown first
+  const raw = await apiGet('getRoster') as unknown as Record<string, unknown[]>;
   const roster: RosterData = {};
   for (const [date, assignments] of Object.entries(raw)) {
     roster[date] = (assignments as Record<string, unknown>[]).map(toAssignment);
@@ -184,7 +185,6 @@ export function getActiveLeave(roster: RosterData, employeeId: string): LeaveRec
   return null;
 }
 
-// Switches "today" at exactly 7 AM BDT (UTC+6)
 export function getEffectiveDate(inputDate?: Date): Date {
   const date = inputDate || new Date();
   const utc = date.getTime() + (date.getTimezoneOffset() * 60000);
@@ -300,7 +300,7 @@ export function getNightShiftProgress(
 // ─── Site Settings ────────────────────────────────────────────────
 export async function getSiteSettings(): Promise<SiteSettings> {
   try {
-    const raw = await apiGet('getSiteSettings') as Record<string, unknown>;
+    const raw = await apiGet('getSiteSettings');
     return {
       siteName:  String(raw.siteName  ?? 'Routine Sales'),
       logoEmoji: String(raw.logoEmoji ?? '📋'),
@@ -318,7 +318,7 @@ export async function saveSiteSettings(settings: SiteSettings): Promise<void> {
 // ─── Admin Credentials ────────────────────────────────────────────
 export async function getAdminCreds(): Promise<AdminCredentials> {
   try {
-    const raw = await apiGet('getAdminCreds') as Record<string, unknown>;
+    const raw = await apiGet('getAdminCreds');
     return {
       username: raw.username ? String(raw.username) : undefined,
       password: raw.password ? String(raw.password) : undefined,
