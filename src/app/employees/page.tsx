@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
-import { getEmployees, saveEmployees, getRoster, SHIFT_INFO, get15Days, todayKey, invalidateCache } from '@/lib/store';
+import { getEmployees, saveEmployees, getRoster, SHIFT_INFO, get15Days, todayKey, invalidateCache, getNightShiftProgress } from '@/lib/store';
 import { Employee, RosterData } from '@/types';
 import { useAuth } from '@/lib/auth';
 import ShiftBadge from '@/components/shared/ShiftBadge';
@@ -21,6 +21,7 @@ export default function EmployeesPage() {
   const [loading, setLoading]     = useState(true);
   const [saving, setSaving]       = useState(false);
   const [error, setError]         = useState<string | null>(null);
+  const [detailTab, setDetailTab] = useState<'upcoming' | 'nights'>('upcoming');
 
   const load = useCallback(async (forceRefresh = false) => {
     setLoading(true);
@@ -79,6 +80,8 @@ export default function EmployeesPage() {
     const a = (roster[date] ?? []).find(x => x.employeeId === selected.id);
     return { date, assignment: a };
   }) : [];
+
+  const nightProgress = selected ? getNightShiftProgress(roster, selected.id) : null;
 
   if (loading) {
     return (
@@ -172,7 +175,22 @@ export default function EmployeesPage() {
                   </button>
                 )}
               </div>
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">Upcoming 15 Days</h3>
+              <div className="flex gap-1 mb-3 border-b border-gray-100 dark:border-gray-800">
+                <button
+                  onClick={() => setDetailTab('upcoming')}
+                  className={`px-3 py-2 text-xs font-semibold uppercase tracking-wide border-b-2 transition-colors
+                    ${detailTab === 'upcoming' ? 'border-teal-500 text-teal-600' : 'border-transparent text-gray-400 hover:text-gray-600'}`}>
+                  Upcoming 15 Days
+                </button>
+                <button
+                  onClick={() => setDetailTab('nights')}
+                  className={`px-3 py-2 text-xs font-semibold uppercase tracking-wide border-b-2 transition-colors
+                    ${detailTab === 'nights' ? 'border-teal-500 text-teal-600' : 'border-transparent text-gray-400 hover:text-gray-600'}`}>
+                  Night Shifts
+                </button>
+              </div>
+
+              {detailTab === 'upcoming' && (
               <div className="space-y-1.5 max-h-96 overflow-y-auto">
                 {upcoming15.map(({ date, assignment }) => {
                   const info = assignment ? SHIFT_INFO[assignment.shift] : null;
@@ -204,6 +222,41 @@ export default function EmployeesPage() {
                   );
                 })}
               </div>
+              )}
+
+              {detailTab === 'nights' && nightProgress && (
+                <div className="space-y-4">
+                  <div className="text-xs text-gray-400">
+                    {new Date(nightProgress.year, nightProgress.month - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <div className="text-center">
+                      <div className="text-3xl font-bold text-purple-600">{nightProgress.completed}</div>
+                      <div className="text-xs text-gray-400 mt-1">Completed</div>
+                    </div>
+                    <div className="text-2xl text-gray-300">/</div>
+                    <div className="text-center">
+                      <div className="text-3xl font-bold text-gray-400">{nightProgress.total}</div>
+                      <div className="text-xs text-gray-400 mt-1">Total Assigned</div>
+                    </div>
+                    <div className="ml-auto text-center">
+                      <div className="text-2xl font-bold text-amber-500">{nightProgress.remaining}</div>
+                      <div className="text-xs text-gray-400 mt-1">Remaining</div>
+                    </div>
+                  </div>
+                  {nightProgress.total > 0 && (
+                    <div className="w-full h-2 rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
+                      <div
+                        className="h-full bg-purple-500 transition-all"
+                        style={{ width: `${(nightProgress.completed / nightProgress.total) * 100}%` }}
+                      />
+                    </div>
+                  )}
+                  {nightProgress.total === 0 && (
+                    <p className="text-sm text-gray-400">No night shifts assigned this month.</p>
+                  )}
+                </div>
+              )}
             </>
           ) : (
             <div className="flex flex-col items-center justify-center h-48 text-gray-300 dark:text-gray-600">
