@@ -41,6 +41,10 @@ export default function DashboardPage() {
       .filter(Boolean) as Employee[];
   }
 
+  function getOffEmployees(date: string = today): Employee[] {
+    return getShiftEmployees('off', date);
+  }
+
   const all15Days = get15Days(today);
 
   // Group shifts by day for the next 14 days (excluding today, which has its own section above)
@@ -52,6 +56,7 @@ export default function DashboardPage() {
         shift,
         employees: getShiftEmployees(shift, date),
       })),
+      offEmployees: getOffEmployees(date),
     }));
   }
 
@@ -67,6 +72,7 @@ export default function DashboardPage() {
   }
 
   const upcomingDays = getUpcomingDays();
+  const todayOffEmployees = getOffEmployees();
 
   function ShiftCard({ shift, employees }: { shift: ShiftType; employees: Employee[] }) {
     const info = SHIFT_INFO[shift];
@@ -104,6 +110,35 @@ export default function DashboardPage() {
     );
   }
 
+  function OffDayCard({ employees }: { employees: Employee[] }) {
+    if (employees.length === 0) return null;
+    return (
+      <div className="card overflow-hidden border border-gray-100 dark:border-gray-800">
+        <div className={`bg-gradient-to-r ${shiftColors.off} p-3 text-white`}>
+          <div className="flex items-center justify-between">
+            <div className="text-sm font-medium opacity-90">{shiftIcons.off} Off Day</div>
+            <div className="text-2xl font-bold">{employees.length}</div>
+          </div>
+        </div>
+        <div className="p-3">
+          <div className="flex flex-wrap gap-3">
+            {employees.map(emp => (
+              <div key={emp.id} className="flex items-center gap-2 px-2 py-1 rounded-lg bg-gray-50 dark:bg-gray-800/60">
+                <div className="w-6 h-6 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-[10px] font-bold text-gray-500 dark:text-gray-400">
+                  {emp.name.charAt(0)}
+                </div>
+                <div>
+                  <div className="text-xs font-medium text-gray-500 dark:text-gray-400">{emp.name}</div>
+                  <div className="text-[10px] text-gray-400">{emp.employeeId} · {emp.role}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -116,13 +151,14 @@ export default function DashboardPage() {
           <ShiftCard key={shift} shift={shift} employees={getShiftEmployees(shift)} />
         ))}
       </div>
+      <OffDayCard employees={todayOffEmployees} />
 
       <div className="space-y-8">
         <h2 className="text-lg font-semibold">Upcoming Shifts (Next 14 Days)</h2>
 
         {upcomingDays.map(day => (
-          <div key={day.date}>
-            <h3 className="text-sm font-medium text-gray-400 mb-3">
+          <div key={day.date} className="space-y-3">
+            <h3 className="text-sm font-medium text-gray-400">
               {new Date(day.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -130,6 +166,7 @@ export default function DashboardPage() {
                 <ShiftCard key={`${day.date}-${shift}`} shift={shift} employees={employees} />
               ))}
             </div>
+            <OffDayCard employees={day.offEmployees} />
           </div>
         ))}
       </div>
