@@ -48,19 +48,19 @@ export default function DashboardPage() {
   function getShiftEmployees(shift: ShiftType, date: string = today): Employee[] {
     return (roster[date] ?? [])
       .filter(a => a.shift === shift && !a.reason?.startsWith('LEAVE|'))
-      .map(a => empMap[a.employeeId])
-      .filter(emp => emp && !isOnLeave(roster, emp.id, date)) as Employee[];
+      .map(a => empMap[a.employeeId] || employees.find(e => e.employeeId === a.employeeId))
+      .filter(emp => emp && !isOnLeave(roster, emp, date)) as Employee[];
   }
 
   function getOnLeaveEmployees(date: string = today): Employee[] {
-    return Object.values(empMap).filter(emp => emp && isOnLeave(roster, emp.id, date)) as Employee[];
+    return employees.filter(emp => isOnLeave(roster, emp, date));
   }
 
   function getOffTodayEmployees(date: string = today): Employee[] {
     return (roster[date] ?? [])
       .filter(a => a.shift === 'off' && !a.reason?.startsWith('LEAVE|'))
-      .map(a => empMap[a.employeeId])
-      .filter(emp => emp && !isOnLeave(roster, emp.id, date)) as Employee[];
+      .map(a => empMap[a.employeeId] || employees.find(e => e.employeeId === a.employeeId))
+      .filter(emp => emp && !isOnLeave(roster, emp, date)) as Employee[];
   }
 
   function getOffEmployeesByDefaultShift(date: string) {
@@ -106,7 +106,6 @@ export default function DashboardPage() {
     });
   }
 
-  // ── Loading ──────────────────────────────────────────────────────
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -119,7 +118,6 @@ export default function DashboardPage() {
     );
   }
 
-  // ── Error ────────────────────────────────────────────────────────
   if (error) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -127,9 +125,7 @@ export default function DashboardPage() {
           <div className="text-4xl">⚠️</div>
           <p className="text-red-500 font-medium">Could not connect to Google Sheets</p>
           <p className="text-gray-400 text-xs">{error}</p>
-          <button onClick={() => load(true)} className="btn-primary text-sm">
-            ↻ Retry
-          </button>
+          <button onClick={() => load(true)} className="btn-primary text-sm">↻ Retry</button>
         </div>
       </div>
     );
@@ -139,14 +135,13 @@ export default function DashboardPage() {
   const todayOffByShift = getOffEmployeesByDefaultShift(today);
 
   function NightProgressPopover({ employee, date }: { employee: Employee; date: string }) {
-    const progress = getNightShiftProgress(roster, employee.id, date);
-    const displayLeave = getActiveLeave(roster, employee.id);
+    const progress = getNightShiftProgress(roster, employee, date);
+    const displayLeave = getActiveLeave(roster, employee);
     const rangeLabel = progress.totalNights === 0
       ? progress.rangeFrom.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
       : `${progress.rangeFrom.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${progress.rangeTo.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
     return (
-      <div className="absolute left-0 top-full mt-1 z-30 w-56 card p-3 shadow-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900"
-        onClick={e => e.stopPropagation()}>
+      <div className="absolute left-0 top-full mt-1 z-30 w-56 card p-3 shadow-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-1">
           <div className="text-xs font-semibold">{employee.name}</div>
           <button className="text-gray-400 hover:text-gray-600 text-xs" onClick={() => setSelectedEmp(null)}>✕</button>
@@ -186,7 +181,7 @@ export default function DashboardPage() {
     const isSelected = selectedEmp?.emp.id === emp.id && selectedEmp?.date === date;
     let progressBadge = null;
     if (shiftType === 'night' && !muted) {
-      const prog = getNightShiftProgress(roster, emp.id, date);
+      const prog = getNightShiftProgress(roster, emp, date);
       if (prog.totalNights > 0) {
         progressBadge = (
           <span className="ml-2 text-[10px] font-bold text-purple-700 bg-purple-100 dark:bg-purple-900/40 px-1.5 py-0.5 rounded">
@@ -212,9 +207,7 @@ export default function DashboardPage() {
     );
   }
 
-  function ShiftCard({ shift, employees, offEmployees, onLeaveEmployees = [], date }: {
-    shift: ShiftType; employees: Employee[]; offEmployees: Employee[]; onLeaveEmployees?: Employee[]; date: string;
-  }) {
+  function ShiftCard({ shift, employees, offEmployees, onLeaveEmployees = [], date }: { shift: ShiftType; employees: Employee[]; offEmployees: Employee[]; onLeaveEmployees?: Employee[]; date: string; }) {
     const info = SHIFT_INFO[shift];
     return (
       <div className="card overflow-visible">
@@ -228,10 +221,7 @@ export default function DashboardPage() {
           </div>
         </div>
         <div className="p-4 space-y-3">
-          {employees.length === 0
-            ? <p className="text-gray-400 text-sm">No one assigned</p>
-            : <div className="space-y-2">{employees.map(emp => <EmployeeRow key={emp.id} emp={emp} date={date} shiftType={shift} />)}</div>
-          }
+          {employees.length === 0 ? <p className="text-gray-400 text-sm">No one assigned</p> : <div className="space-y-2">{employees.map(emp => <EmployeeRow key={emp.id} emp={emp} date={date} shiftType={shift} />)}</div>}
           {offEmployees.length > 0 && (
             <div className="pt-2 border-t border-gray-100 dark:border-gray-800 space-y-2">
               <div className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">🛌 Off Today</div>
