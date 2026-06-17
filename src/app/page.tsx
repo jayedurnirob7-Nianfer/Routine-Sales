@@ -62,7 +62,9 @@ export default function DashboardPage() {
     const grouped: Record<string, Employee[]> = { morning: [], evening: [], night: [], off: [], leaveMorning: [], leaveEvening: [], leaveNight: [], leaveOff: [] };
 
     const placeEmployee = (emp: Employee, isLeave: boolean) => {
-      const shift = emp.defaultShift && TODAY_SHIFTS.includes(emp.defaultShift) ? emp.defaultShift : 'off';
+      const ds = emp.defaultShift;
+      // Fixed TypeScript strictness requirement here
+      const shift = (ds && TODAY_SHIFTS.includes(ds as ShiftType)) ? ds : 'off';
       const key = isLeave ? `leave${shift.charAt(0).toUpperCase() + shift.slice(1)}` : shift;
       grouped[key].push(emp);
     };
