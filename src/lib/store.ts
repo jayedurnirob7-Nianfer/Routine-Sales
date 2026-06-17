@@ -162,6 +162,11 @@ export async function saveSiteSettings(settings: SiteSettings): Promise<void> {
   if (memCache) { memCache = { ...memCache, settings }; lsSet(LS_KEY, memCache); }
 }
 
+export async function saveAdminCreds(creds: AdminCredentials): Promise<void> {
+  await apiPost('saveAuth', { auth: creds });
+  if (memCache) { memCache = { ...memCache, auth: creds }; lsSet(LS_KEY, memCache); }
+}
+
 // ─── ROBUST ID HELPERS ───────────────────────────────────────────
 // These functions check BOTH employee.id and employee.employeeId
 
