@@ -14,6 +14,30 @@ export const SHIFT_INFO: Record<ShiftType, ShiftInfo> = {
   off:     { type: 'off', label: 'Off Day', time: 'No Shift', color: 'text-gray-600 dark:text-gray-400', bg: 'bg-gray-100 dark:bg-gray-800', border: 'border-gray-200 dark:border-gray-700' },
 };
 
+// ─── localStorage helpers ─────────────────────────────────────────
+const LS_EMP    = 'rs_employees_v1';
+const LS_ROSTER = 'rs_roster_v1';
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes before background refresh
+
+function lsGet<T>(key: string): { data: T; ts: number } | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+
+function lsSet(key: string, data: unknown): void {
+  if (typeof window === 'undefined') return;
+  try { localStorage.setItem(key, JSON.stringify({ data, ts: Date.now() })); } catch { /* quota full */ }
+}
+
+function lsClear(key: string): void {
+  if (typeof window === 'undefined') return;
+  try { localStorage.removeItem(key); } catch { /* ignore */ }
+}
+
+// ─── Date helpers ─────────────────────────────────────────────────
 function toISODate(dateStr: string): string {
   if (!dateStr) return '';
   if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr;
@@ -60,6 +84,7 @@ function toAssignment(a: Record<string, unknown>): ShiftAssignment {
   };
 }
 
+// ─── API ──────────────────────────────────────────────────────────
 async function apiGet(action: string): Promise<Record<string, unknown>> {
   const res = await fetch(`${API_URL}?action=${action}`);
   if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
@@ -77,44 +102,89 @@ async function apiPost(action: string, payload: unknown): Promise<void> {
   });
 }
 
+// ─── In-memory cache ──────────────────────────────────────────────
 let cachedEmployees: Employee[] | null = null;
 let cachedRoster: RosterData | null = null;
 
 export function invalidateCache() {
   cachedEmployees = null;
   cachedRoster = null;
+  lsClear(LS_EMP);
+  lsClear(LS_ROSTER);
+}
+
+// ─── Employees ────────────────────────────────────────────────────
+async function fetchEmployeesFromAPI(): Promise<Employee[]> {
+  const raw = await apiGet('getEmployees') as unknown as Record<string, unknown>[];
+  const employees = raw.map(toEmployee);
+  cachedEmployees = employees;
+  lsSet(LS_EMP, employees);
+  return employees;
 }
 
 export async function getEmployees(): Promise<Employee[]> {
+  // 1. In-memory cache (fastest)
   if (cachedEmployees) return cachedEmployees;
-  // ✅ Fixed: cast through unknown first
-  const raw = await apiGet('getEmployees') as unknown as Record<string, unknown>[];
-  cachedEmployees = raw.map(toEmployee);
-  return cachedEmployees;
+
+  // 2. localStorage cache (instant on repeat visits)
+  const cached = lsGet<Employee[]>(LS_EMP);
+  if (cached) {
+    cachedEmployees = cached.data;
+    // Refresh in background if stale
+    if (Date.now() - cached.ts > CACHE_TTL) {
+      fetchEmployeesFromAPI().catch(() => {});
+    }
+    return cachedEmployees;
+  }
+
+  // 3. Fetch from API (first ever visit)
+  return fetchEmployeesFromAPI();
 }
 
 export async function saveEmployees(employees: Employee[]): Promise<void> {
   await apiPost('saveEmployees', { employees });
   cachedEmployees = employees;
+  lsSet(LS_EMP, employees);
 }
 
-export async function getRoster(): Promise<RosterData> {
-  if (cachedRoster) return cachedRoster;
-  // ✅ Fixed: cast through unknown first
+// ─── Roster ───────────────────────────────────────────────────────
+async function fetchRosterFromAPI(): Promise<RosterData> {
   const raw = await apiGet('getRoster') as unknown as Record<string, unknown[]>;
   const roster: RosterData = {};
   for (const [date, assignments] of Object.entries(raw)) {
     roster[date] = (assignments as Record<string, unknown>[]).map(toAssignment);
   }
   cachedRoster = roster;
+  lsSet(LS_ROSTER, roster);
   return roster;
+}
+
+export async function getRoster(): Promise<RosterData> {
+  // 1. In-memory cache (fastest)
+  if (cachedRoster) return cachedRoster;
+
+  // 2. localStorage cache (instant on repeat visits)
+  const cached = lsGet<RosterData>(LS_ROSTER);
+  if (cached) {
+    cachedRoster = cached.data;
+    // Refresh in background if stale
+    if (Date.now() - cached.ts > CACHE_TTL) {
+      fetchRosterFromAPI().catch(() => {});
+    }
+    return cachedRoster;
+  }
+
+  // 3. Fetch from API (first ever visit)
+  return fetchRosterFromAPI();
 }
 
 export async function saveRoster(roster: RosterData): Promise<void> {
   await apiPost('saveRoster', { roster });
   cachedRoster = roster;
+  lsSet(LS_ROSTER, roster);
 }
 
+// ─── Assignment helpers ───────────────────────────────────────────
 export function upsertAssignmentLocal(roster: RosterData, date: string, assignment: ShiftAssignment): RosterData {
   const others = (roster[date] ?? []).filter(a => a.employeeId !== assignment.employeeId);
   return { ...roster, [date]: [...others, assignment] };
@@ -155,6 +225,7 @@ export async function overrideSingleDay(
   });
 }
 
+// ─── Leave helpers ────────────────────────────────────────────────
 export function getLeaveOnDate(roster: RosterData, employeeId: string, dateStr: string): LeaveRecord | null {
   const a = (roster[dateStr] ?? []).find(x => x.employeeId === employeeId && x.reason?.startsWith('LEAVE|'));
   if (a) {
@@ -176,8 +247,7 @@ export function getActiveLeave(roster: RosterData, employeeId: string): LeaveRec
     const a = (roster[dateStr] ?? []).find(x => x.employeeId === employeeId && x.reason?.startsWith('LEAVE|'));
     if (a) {
       const parts = a.reason!.split('|');
-      const toDate = parts[2];
-      if (toDate >= today) {
+      if (parts[2] >= today) {
         return { employeeId, fromDate: parts[1], toDate: parts[2], reason: parts[3] || undefined };
       }
     }
@@ -185,13 +255,13 @@ export function getActiveLeave(roster: RosterData, employeeId: string): LeaveRec
   return null;
 }
 
+// ─── Date utilities ───────────────────────────────────────────────
+// Switches "today" at exactly 7 AM BDT (UTC+6)
 export function getEffectiveDate(inputDate?: Date): Date {
   const date = inputDate || new Date();
   const utc = date.getTime() + (date.getTimezoneOffset() * 60000);
   const bdtDate = new Date(utc + (3600000 * 6));
-  if (bdtDate.getHours() < 7) {
-    bdtDate.setDate(bdtDate.getDate() - 1);
-  }
+  if (bdtDate.getHours() < 7) bdtDate.setDate(bdtDate.getDate() - 1);
   return bdtDate;
 }
 
@@ -230,6 +300,7 @@ export function getDateAssignments(roster: RosterData, date: string): ShiftAssig
   return roster[date] ?? [];
 }
 
+// ─── Night Shift Progress ─────────────────────────────────────────
 export function getNightShiftProgress(
   roster: RosterData,
   employeeId: string,
@@ -279,11 +350,9 @@ export function getNightShiftProgress(
   let remainingNights = 0;
   let cur = blockStart;
   while (cur <= blockEnd) {
-    if (shiftOn(cur) === 'night') {
-      if (!isLeave(cur)) {
-        if (cur <= selectedDate) { completedNights += 1; }
-        else { remainingNights += 1; }
-      }
+    if (shiftOn(cur) === 'night' && !isLeave(cur)) {
+      if (cur <= selectedDate) completedNights += 1;
+      else remainingNights += 1;
     }
     cur = offsetDate(cur, 1);
   }
