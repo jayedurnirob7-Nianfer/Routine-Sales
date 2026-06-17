@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
-import { getEmployees, saveEmployees, getRoster, getLeaves, saveLeaves, getActiveLeave, SHIFT_INFO, get15Days, todayKey, invalidateCache, getNightShiftProgress } from '@/lib/store';
+import { getEmployees, saveEmployees, getRoster, saveRoster, getActiveLeave, SHIFT_INFO, get15Days, todayKey, invalidateCache, getNightShiftProgress } from '@/lib/store';
 import { Employee, RosterData, LeaveRecord } from '@/types';
 import { useAuth } from '@/lib/auth';
 import ShiftBadge from '@/components/shared/ShiftBadge';
@@ -12,7 +12,6 @@ export default function EmployeesPage() {
   const { isAdmin } = useAuth();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [roster, setRoster]       = useState<RosterData>({});
-  const [leaves, setLeaves]       = useState<LeaveRecord[]>([]);
   const [search, setSearch]       = useState('');
   const [editing, setEditing]     = useState<Employee | null>(null);
   const [form, setForm]           = useState(blank());
@@ -31,10 +30,9 @@ export default function EmployeesPage() {
     setError(null);
     if (forceRefresh) invalidateCache();
     try {
-      const [emps, ros, lvs] = await Promise.all([getEmployees(), getRoster(), getLeaves()]);
+      const [emps, ros] = await Promise.all([getEmployees(), getRoster()]);
       setEmployees(emps);
       setRoster(ros);
-      setLeaves(lvs);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Unknown error';
       setError(`Failed to load from Google Sheets: ${msg}`);
@@ -84,25 +82,36 @@ export default function EmployeesPage() {
     if (!leaveForm.fromDate || !leaveForm.toDate || !leaveModalEmp) return;
     const f1 = new Date(leaveForm.fromDate);
     const f2 = new Date(leaveForm.toDate);
-    const diffDays = (f2.getTime() - f1.getTime()) / 86400000;
+    const diffDays = Math.round((f2.getTime() - f1.getTime()) / 86400000);
     
     if (diffDays < 0) { alert('To Date must be after From Date'); return; }
-    if (diffDays > 2) { alert('Leave can be a maximum of 3 days (e.g. Jun 1 to Jun 3)'); return; }
+    if (diffDays > 31) { alert('Leave can be a maximum of 31 days'); return; }
 
     setSaving(true);
     try {
-      const otherLeaves = leaves.filter(l => l.employeeId !== leaveModalEmp.employeeId);
-      const newLeaves = [...otherLeaves, {
-        employeeId: leaveModalEmp.employeeId,
-        fromDate: leaveForm.fromDate,
-        toDate: leaveForm.toDate,
-        reason: leaveForm.reason
-      }];
-      await saveLeaves(newLeaves);
-      setLeaves(newLeaves);
+      let updatedRoster = { ...roster };
+      const leaveReasonStr = `LEAVE|${leaveForm.fromDate}|${leaveForm.toDate}|${leaveForm.reason}`;
+      
+      for (let d = 0; d <= diffDays; d++) {
+        const dt = new Date(f1.getTime() + d * 86400000);
+        const dateStr = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+        
+        const others = (updatedRoster[dateStr] ?? []).filter(a => a.employeeId !== leaveModalEmp.employeeId);
+        updatedRoster[dateStr] = [...others, {
+          employeeId: leaveModalEmp.employeeId,
+          shift: 'off',
+          effectiveFrom: dateStr,
+          effectiveTo: dateStr,
+          reason: leaveReasonStr,
+          isOffDayOverride: true,
+        }];
+      }
+      
+      await saveRoster(updatedRoster);
+      setRoster(updatedRoster);
       setLeaveModalEmp(null);
     } catch (err: any) {
-      alert("Failed to save. Did you copy the new Code.gs into Google Apps Script? Error: " + err.message);
+      alert("Failed to save leave. Error: " + err.message);
     } finally {
       setSaving(false);
     }
@@ -110,12 +119,28 @@ export default function EmployeesPage() {
 
   async function removeLeave(leave: LeaveRecord) {
     if (!confirm('Remove this leave?')) return;
+    setSaving(true);
     try {
-      const newLeaves = leaves.filter(l => l !== leave);
-      await saveLeaves(newLeaves);
-      setLeaves(newLeaves);
-    } catch (err: any) {
-      alert("Failed to remove. Error: " + err.message);
+      let updatedRoster = { ...roster };
+      const f1 = new Date(leave.fromDate);
+      const f2 = new Date(leave.toDate);
+      const diffDays = Math.round((f2.getTime() - f1.getTime()) / 86400000);
+      
+      for (let d = 0; d <= diffDays; d++) {
+        const dt = new Date(f1.getTime() + d * 86400000);
+        const dateStr = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+        
+        updatedRoster[dateStr] = (updatedRoster[dateStr] ?? []).filter(a => 
+           !(a.employeeId === leave.employeeId && a.reason?.startsWith('LEAVE|'))
+        );
+      }
+      
+      await saveRoster(updatedRoster);
+      setRoster(updatedRoster);
+    } catch(e: any) {
+      alert("Failed to remove leave. Error: " + e.message);
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -124,7 +149,7 @@ export default function EmployeesPage() {
     return { date, assignment: a };
   }) : [];
 
-  const nightProgress = selected ? getNightShiftProgress(roster, leaves, selected.employeeId) : null;
+  const nightProgress = selected ? getNightShiftProgress(roster, selected.employeeId) : null;
 
   if (loading) {
     return (
@@ -229,7 +254,7 @@ export default function EmployeesPage() {
               </div>
 
               {(() => {
-                const activeLeave = getActiveLeave(leaves, selected.employeeId);
+                const activeLeave = getActiveLeave(roster, selected.employeeId);
                 if (!activeLeave) return null;
                 return (
                   <div className="mb-4 p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800 flex items-center justify-between">
@@ -241,9 +266,10 @@ export default function EmployeesPage() {
                       </div>
                     </div>
                     {isAdmin && (
-                      <button className="text-xs text-red-500 font-medium hover:underline"
-                        onClick={() => removeLeave(activeLeave)}>
-                        Remove
+                      <button className="text-xs text-red-500 font-medium hover:underline disabled:opacity-50"
+                        onClick={() => removeLeave(activeLeave)}
+                        disabled={saving}>
+                        {saving ? 'Removing...' : 'Remove'}
                       </button>
                     )}
                   </div>
@@ -282,7 +308,11 @@ export default function EmployeesPage() {
                       {info ? (
                         <div className="flex items-center gap-2">
                           <ShiftBadge shift={assignment!.shift} />
-                          <span className="text-xs text-gray-400">{info.time}</span>
+                          {assignment!.reason?.startsWith('LEAVE|') ? (
+                            <span className="text-xs text-amber-500 font-medium">✈️ On Leave</span>
+                          ) : (
+                            <span className="text-xs text-gray-400">{info.time}</span>
+                          )}
                         </div>
                       ) : (
                         <span className="text-xs text-gray-300 dark:text-gray-600">Not assigned</span>
@@ -382,7 +412,7 @@ export default function EmployeesPage() {
           <div className="card p-6 w-full max-w-md space-y-4">
             <h2 className="font-semibold text-lg">Assign Leave for {leaveModalEmp.name}</h2>
             <div className="bg-amber-50 p-3 rounded text-sm text-amber-800 border border-amber-200">
-              ⚠️ Maximum of 3 days allowed. Existing leave for this employee will be replaced.
+              ⚠️ Maximum of 31 days allowed. Existing shifts on these days will be replaced.
             </div>
             
             <div className="grid grid-cols-2 gap-4">
