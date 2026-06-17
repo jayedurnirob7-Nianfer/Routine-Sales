@@ -70,7 +70,7 @@ async function apiGet(action: string): Promise<Record<string, unknown>> {
 }
 
 async function apiPost(action: string, payload: unknown): Promise<void> {
-  const res = await fetch(`${API_URL}?action=${action}`, {
+  await fetch(`${API_URL}?action=${action}`, {
     method: 'POST',
     mode: 'no-cors',
     headers: { 'Content-Type': 'application/json' },
