@@ -1,6 +1,3 @@
-// ============================================================
-//  src/lib/store.ts  —  Google Sheets backend
-// ============================================================
 import {
   Employee, RosterData, ShiftAssignment,
   ShiftInfo, ShiftType, SiteSettings, AdminCredentials, LeaveRecord
@@ -254,8 +251,19 @@ export function getActiveLeave(leaves: LeaveRecord[], employeeId: string): Leave
   return active || null;
 }
 
+// Switches "today" at exactly 7 AM BDT (UTC+6)
+export function getEffectiveDate(inputDate?: Date): Date {
+  const date = inputDate || new Date();
+  const utc = date.getTime() + (date.getTimezoneOffset() * 60000);
+  const bdtDate = new Date(utc + (3600000 * 6));
+  if (bdtDate.getHours() < 7) {
+    bdtDate.setDate(bdtDate.getDate() - 1);
+  }
+  return bdtDate;
+}
+
 export function todayKey(): string {
-  const d = new Date();
+  const d = getEffectiveDate();
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 
