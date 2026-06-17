@@ -34,46 +34,49 @@ export default function DashboardPage() {
 
   const empMap = Object.fromEntries(employees.map(e => [e.id, e]));
 
+  // 1. Get active shift employees EXCLUDING anyone who is on leave
   function getShiftEmployees(shift: ShiftType, date: string = today): Employee[] {
     return (roster[date] ?? [])
       .filter(a => a.shift === shift && !a.reason?.startsWith('LEAVE|'))
       .map(a => empMap[a.employeeId])
-      .filter(Boolean) as Employee[];
+      .filter(emp => emp && !isOnLeave(roster, emp.id, date)) as Employee[]; // Use row ID
   }
 
   function getOnLeaveEmployees(date: string = today): Employee[] {
+    const allEmployees = Object.values(empMap);
+    return allEmployees.filter(emp => emp && isOnLeave(roster, emp.id, date)); // Use row ID
+  }
+
+  function getOffTodayEmployees(date: string = today): Employee[] {
     return (roster[date] ?? [])
-      .filter(a => a.reason?.startsWith('LEAVE|'))
+      .filter(a => a.shift === 'off' && !a.reason?.startsWith('LEAVE|'))
       .map(a => empMap[a.employeeId])
-      .filter(Boolean) as Employee[];
+      .filter(emp => emp && !isOnLeave(roster, emp.id, date)) as Employee[]; // Use row ID
   }
 
-  function prevDateKey(date: string): string {
-    const [y, m, d] = date.split('-').map(Number);
-    const dt = new Date(y, m - 1, d - 1);
-    return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
-  }
-
-  function getOffEmployeesByPrevShift(date: string) {
-    const offToday = getShiftEmployees('off', date);
+  // 2. Map Off/Leave employees to the bottom of their specific Default Shift!
+  function getOffEmployeesByDefaultShift(date: string) {
+    const offToday = getOffTodayEmployees(date);
     const onLeaveToday = getOnLeaveEmployees(date);
     
     const grouped: Record<string, Employee[]> = { morning: [], evening: [], night: [], off: [], leaveMorning: [], leaveEvening: [], leaveNight: [], leaveOff: [] };
-    const yesterday = prevDateKey(date);
 
     const placeEmployee = (emp: Employee, isLeave: boolean) => {
-      const yesterdayAssignment = (roster[yesterday] ?? []).find(a => a.employeeId === emp.employeeId);
-      if (yesterdayAssignment && TODAY_SHIFTS.includes(yesterdayAssignment.shift)) {
-        const key = isLeave ? `leave${yesterdayAssignment.shift.charAt(0).toUpperCase() + yesterdayAssignment.shift.slice(1)}` : yesterdayAssignment.shift;
-        grouped[key].push(emp);
-      } else {
-        const key = isLeave ? 'leaveOff' : 'off';
-        grouped[key].push(emp);
-      }
+      const shift = emp.defaultShift && TODAY_SHIFTS.includes(emp.defaultShift) ? emp.defaultShift : 'off';
+      const key = isLeave ? `leave${shift.charAt(0).toUpperCase() + shift.slice(1)}` : shift;
+      grouped[key].push(emp);
     };
 
-    offToday.forEach(emp => placeEmployee(emp, false));
-    onLeaveToday.forEach(emp => placeEmployee(emp, true));
+    const seen = new Set<string>();
+    onLeaveToday.forEach(emp => {
+      placeEmployee(emp, true);
+      seen.add(emp.id);
+    });
+    offToday.forEach(emp => {
+      if (!seen.has(emp.id)) {
+        placeEmployee(emp, false);
+      }
+    });
 
     return grouped;
   }
@@ -83,7 +86,7 @@ export default function DashboardPage() {
   function getUpcomingDays() {
     const upcomingDates = all15Days.filter(date => date !== today);
     return upcomingDates.map(date => {
-      const offByShift = getOffEmployeesByPrevShift(date);
+      const offByShift = getOffEmployeesByDefaultShift(date);
       return {
         date,
         shifts: TODAY_SHIFTS.map(shift => {
@@ -117,11 +120,11 @@ export default function DashboardPage() {
   }
 
   const upcomingDays = getUpcomingDays();
-  const todayOffByShift = getOffEmployeesByPrevShift(today);
+  const todayOffByShift = getOffEmployeesByDefaultShift(today);
 
   function NightProgressPopover({ employee, date }: { employee: Employee; date: string }) {
-    const progress = getNightShiftProgress(roster, employee.employeeId, date);
-    const displayLeave = getActiveLeave(roster, employee.employeeId);
+    const progress = getNightShiftProgress(roster, employee.id, date); // Use ID
+    const displayLeave = getActiveLeave(roster, employee.id); // Use ID
 
     const rangeLabel = progress.totalNights === 0
       ? progress.rangeFrom.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
@@ -182,7 +185,7 @@ export default function DashboardPage() {
     
     let progressBadge = null;
     if (shiftType === 'night' && !muted) {
-      const prog = getNightShiftProgress(roster, emp.employeeId, date);
+      const prog = getNightShiftProgress(roster, emp.id, date); // Use ID
       if (prog.totalNights > 0) {
         progressBadge = (
           <span className="ml-2 text-[10px] font-bold text-purple-700 bg-purple-100 dark:bg-purple-900/40 px-1.5 py-0.5 rounded">
@@ -222,6 +225,7 @@ export default function DashboardPage() {
               <div className="text-sm font-medium opacity-90">{shiftIcons[shift]} {info.label} Shift</div>
               <div className="text-xs opacity-75 mt-0.5">{info.time}</div>
             </div>
+            {/* The count will naturally exclude anyone filtered out of the employees array! */}
             <div className="text-3xl font-bold">{employees.length}</div>
           </div>
         </div>
@@ -304,9 +308,9 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {TODAY_SHIFTS.map(shift => {
           const workingEmployees = getShiftEmployees(shift, today);
-          const rawOffEmployees = todayOffByShift[shift] || [];
-          const offEmployees = rawOffEmployees.filter(emp => !isOnLeave(roster, emp.employeeId, today));
-          const offOnLeave = rawOffEmployees.filter(emp => isOnLeave(roster, emp.employeeId, today));
+          const key = `leave${shift.charAt(0).toUpperCase() + shift.slice(1)}`;
+          const offOnLeave = todayOffByShift[key] || [];
+          const offEmployees = todayOffByShift[shift] || [];
 
           return (
             <ShiftCard
@@ -321,8 +325,8 @@ export default function DashboardPage() {
         })}
       </div>
       <UnsortedOffCard 
-        employees={(todayOffByShift.off || []).filter(e => !isOnLeave(roster, e.employeeId, today))} 
-        onLeaveEmployees={(todayOffByShift.leaveOff || [])}
+        employees={todayOffByShift.off || []} 
+        onLeaveEmployees={todayOffByShift.leaveOff || []}
         date={today} 
       />
 
