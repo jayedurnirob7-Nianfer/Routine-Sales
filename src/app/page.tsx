@@ -142,7 +142,7 @@ export default function DashboardPage() {
                     {emp.name.charAt(0)}
                   </div>
                   <div>
-                    <div className="text-sm font-medium line-through text-gray-400">{emp.name}</div>
+                    <div className="text-sm font-medium text-gray-400">{emp.name}</div>
                     <div className="text-xs text-gray-400">{emp.employeeId} · {emp.role}</div>
                   </div>
                 </div>
