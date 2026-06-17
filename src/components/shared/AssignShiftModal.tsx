@@ -45,20 +45,14 @@ export default function AssignShiftModal({ employee, date, currentShift, roster,
             weeklyOffDay: selectedWeekday,
             defaultShift: employee.defaultShift ?? 'morning',
           };
-          // applyWeeklyOffDay already does a single saveRoster internally (fixed in store.ts)
-          const updated = await applyWeeklyOffDay(roster, updatedEmp, selectedWeekday, year, month);
+          const [fy, fm, fd] = fromDate.split('-').map(Number);
+          const updated = await applyWeeklyOffDay(roster, updatedEmp, selectedWeekday, fy, fm, fd);
           onSave(updated, updatedEmp);
         } else if (offMode === 'single') {
           const updated = await overrideSingleDay(roster, employee, fromDate, 'off', reason);
           onSave(updated);
         }
       } else {
-        // ✅ FIX: accumulate all date-range assignments locally using the
-        // local-only helper, then fire ONE saveRoster at the very end.
-        // Previously upsertAssignment() was called per day which fired one
-        // HTTP POST per day — e.g. a 7-day range = 7 sequential API calls,
-        // each overwriting the previous, often resulting in only the last
-        // day surviving in Google Sheets.
         const [fy, fm, fd] = fromDate.split('-').map(Number);
         const [ty, tm, td] = toDate.split('-').map(Number);
         const start   = new Date(fy, fm - 1, fd);
@@ -70,9 +64,9 @@ export default function AssignShiftModal({ employee, date, currentShift, roster,
           const y = current.getFullYear();
           const m = String(current.getMonth() + 1).padStart(2, '0');
           const d = String(current.getDate()).padStart(2, '0');
-          // local-only — no network call
+          
           updated = upsertAssignmentLocal(updated, `${y}-${m}-${d}`, {
-            employeeId:   employee.id,
+            employeeId:    employee.employeeId,
             shift,
             effectiveFrom: fromDate,
             effectiveTo:   toDate,
@@ -83,8 +77,6 @@ export default function AssignShiftModal({ employee, date, currentShift, roster,
 
         await saveRoster(updated);
 
-        // ✅ FIX: persist the assigned shift as the employee's defaultShift so
-        // that future weekly-off-day patterns use the correct shift (not morning).
         const updatedEmp: Employee = { ...employee, defaultShift: shift };
         onSave(updated, updatedEmp);
       }
@@ -150,6 +142,12 @@ export default function AssignShiftModal({ employee, date, currentShift, roster,
 
             {offMode === 'weekly' && (
               <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">Effective From</label>
+                  <input type="date" className="input" value={fromDate} onChange={e => setFrom(e.target.value)} />
+                  <p className="text-xs text-gray-400 mt-1">Shifts before this date will stay exactly as they are.</p>
+                </div>
+
                 <div>
                   <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Select Weekly Off Day</label>
                   <div className="grid grid-cols-4 gap-1.5">
