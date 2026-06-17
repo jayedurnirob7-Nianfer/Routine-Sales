@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
-import { getEmployees, saveEmployees, getRoster, SHIFT_INFO, get15Days, todayKey, invalidateCache, getNightShiftProgress } from '@/lib/store';
-import { Employee, RosterData } from '@/types';
+import { getEmployees, saveEmployees, getRoster, getLeaves, saveLeaves, getActiveLeave, SHIFT_INFO, get15Days, todayKey, invalidateCache, getNightShiftProgress } from '@/lib/store';
+import { Employee, RosterData, LeaveRecord } from '@/types';
 import { useAuth } from '@/lib/auth';
 import ShiftBadge from '@/components/shared/ShiftBadge';
 import AssignShiftModal from '@/components/shared/AssignShiftModal';
@@ -12,12 +12,15 @@ export default function EmployeesPage() {
   const { isAdmin } = useAuth();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [roster, setRoster]       = useState<RosterData>({});
+  const [leaves, setLeaves]       = useState<LeaveRecord[]>([]);
   const [search, setSearch]       = useState('');
   const [editing, setEditing]     = useState<Employee | null>(null);
   const [form, setForm]           = useState(blank());
   const [showModal, setShowModal] = useState(false);
   const [selected, setSelected]   = useState<Employee | null>(null);
   const [assignTarget, setAssignTarget] = useState<{ emp: Employee; date: string } | null>(null);
+  const [leaveModalEmp, setLeaveModalEmp] = useState<Employee | null>(null);
+  const [leaveForm, setLeaveForm] = useState({ fromDate: todayKey(), toDate: todayKey(), reason: '' });
   const [loading, setLoading]     = useState(true);
   const [saving, setSaving]       = useState(false);
   const [error, setError]         = useState<string | null>(null);
@@ -28,9 +31,10 @@ export default function EmployeesPage() {
     setError(null);
     if (forceRefresh) invalidateCache();
     try {
-      const [emps, ros] = await Promise.all([getEmployees(), getRoster()]);
+      const [emps, ros, lvs] = await Promise.all([getEmployees(), getRoster(), getLeaves()]);
       setEmployees(emps);
       setRoster(ros);
+      setLeaves(lvs);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Unknown error';
       setError(`Failed to load from Google Sheets: ${msg}`);
@@ -76,12 +80,42 @@ export default function EmployeesPage() {
     if (selected?.id === id) setSelected(null);
   }
 
+  async function assignLeave() {
+    if (!leaveForm.fromDate || !leaveForm.toDate || !leaveModalEmp) return;
+    const f1 = new Date(leaveForm.fromDate);
+    const f2 = new Date(leaveForm.toDate);
+    const diffDays = (f2.getTime() - f1.getTime()) / 86400000;
+    
+    if (diffDays < 0) { alert('To Date must be after From Date'); return; }
+    if (diffDays > 2) { alert('Leave can be a maximum of 3 days (e.g. Jun 1 to Jun 3)'); return; }
+
+    setSaving(true);
+    const otherLeaves = leaves.filter(l => l.employeeId !== leaveModalEmp.employeeId);
+    const newLeaves = [...otherLeaves, {
+      employeeId: leaveModalEmp.employeeId,
+      fromDate: leaveForm.fromDate,
+      toDate: leaveForm.toDate,
+      reason: leaveForm.reason
+    }];
+    await saveLeaves(newLeaves);
+    setLeaves(newLeaves);
+    setLeaveModalEmp(null);
+    setSaving(false);
+  }
+
+  async function removeLeave(leave: LeaveRecord) {
+    if (!confirm('Remove this leave?')) return;
+    const newLeaves = leaves.filter(l => l !== leave);
+    await saveLeaves(newLeaves);
+    setLeaves(newLeaves);
+  }
+
   const upcoming15 = selected ? get15Days(todayKey()).map(date => {
     const a = (roster[date] ?? []).find(x => x.employeeId === selected.id);
     return { date, assignment: a };
   }) : [];
 
-  const nightProgress = selected ? getNightShiftProgress(roster, selected.id) : null;
+  const nightProgress = selected ? getNightShiftProgress(roster, leaves, selected.employeeId) : null;
 
   if (loading) {
     return (
@@ -169,12 +203,44 @@ export default function EmployeesPage() {
                   <p className="text-xs text-gray-500">{selected.employeeId} · {selected.role}</p>
                 </div>
                 {isAdmin && (
-                  <button className="btn-primary text-xs"
-                    onClick={() => setAssignTarget({ emp: selected, date: todayKey() })}>
-                    + Assign Shift
-                  </button>
+                  <div className="flex gap-2">
+                    <button className="btn-ghost text-xs border border-gray-200 dark:border-gray-700"
+                      onClick={() => {
+                         setLeaveModalEmp(selected);
+                         setLeaveForm({ fromDate: todayKey(), toDate: todayKey(), reason: '' });
+                      }}>
+                      ✈️ Leave
+                    </button>
+                    <button className="btn-primary text-xs"
+                      onClick={() => setAssignTarget({ emp: selected, date: todayKey() })}>
+                      + Assign Shift
+                    </button>
+                  </div>
                 )}
               </div>
+
+              {(() => {
+                const activeLeave = getActiveLeave(leaves, selected.employeeId);
+                if (!activeLeave) return null;
+                return (
+                  <div className="mb-4 p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800 flex items-center justify-between">
+                    <div>
+                      <div className="text-sm font-semibold text-amber-800 dark:text-amber-500">✈️ On Leave</div>
+                      <div className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+                        {new Date(activeLeave.fromDate + 'T00:00:00').toLocaleDateString()} – {new Date(activeLeave.toDate + 'T00:00:00').toLocaleDateString()}
+                        {activeLeave.reason && ` · ${activeLeave.reason}`}
+                      </div>
+                    </div>
+                    {isAdmin && (
+                      <button className="text-xs text-red-500 font-medium hover:underline"
+                        onClick={() => removeLeave(activeLeave)}>
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                );
+              })()}
+
               <div className="flex gap-1 mb-3 border-b border-gray-100 dark:border-gray-800">
                 <button
                   onClick={() => setDetailTab('upcoming')}
@@ -227,33 +293,30 @@ export default function EmployeesPage() {
               {detailTab === 'nights' && nightProgress && (
                 <div className="space-y-4">
                   <div className="text-xs text-gray-400">
-                    {new Date(nightProgress.year, nightProgress.month - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                    {nightProgress.totalNights === 0 ? "No night shifts assigned this block." : `${nightProgress.rangeFrom.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${nightProgress.rangeTo.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`}
                   </div>
                   <div className="flex items-center gap-4">
                     <div className="text-center">
-                      <div className="text-3xl font-bold text-purple-600">{nightProgress.completed}</div>
+                      <div className="text-3xl font-bold text-purple-600">{nightProgress.completedNights}</div>
                       <div className="text-xs text-gray-400 mt-1">Completed</div>
                     </div>
                     <div className="text-2xl text-gray-300">/</div>
                     <div className="text-center">
-                      <div className="text-3xl font-bold text-gray-400">{nightProgress.total}</div>
+                      <div className="text-3xl font-bold text-gray-400">{nightProgress.totalNights}</div>
                       <div className="text-xs text-gray-400 mt-1">Total Assigned</div>
                     </div>
                     <div className="ml-auto text-center">
-                      <div className="text-2xl font-bold text-amber-500">{nightProgress.remaining}</div>
+                      <div className="text-2xl font-bold text-amber-500">{nightProgress.remainingNights}</div>
                       <div className="text-xs text-gray-400 mt-1">Remaining</div>
                     </div>
                   </div>
-                  {nightProgress.total > 0 && (
+                  {nightProgress.totalNights > 0 && (
                     <div className="w-full h-2 rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
                       <div
                         className="h-full bg-purple-500 transition-all"
-                        style={{ width: `${(nightProgress.completed / nightProgress.total) * 100}%` }}
+                        style={{ width: `${(nightProgress.completedNights / nightProgress.totalNights) * 100}%` }}
                       />
                     </div>
-                  )}
-                  {nightProgress.total === 0 && (
-                    <p className="text-sm text-gray-400">No night shifts assigned this month.</p>
                   )}
                 </div>
               )}
@@ -303,6 +366,39 @@ export default function EmployeesPage() {
           }}
           onClose={() => setAssignTarget(null)}
         />
+      )}
+
+      {leaveModalEmp && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="card p-6 w-full max-w-md space-y-4">
+            <h2 className="font-semibold text-lg">Assign Leave for {leaveModalEmp.name}</h2>
+            <div className="bg-amber-50 p-3 rounded text-sm text-amber-800 border border-amber-200">
+              ⚠️ Maximum of 3 days allowed. Existing leave for this employee will be replaced.
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">From Date</label>
+                <input type="date" className="input" value={leaveForm.fromDate} onChange={e => setLeaveForm({ ...leaveForm, fromDate: e.target.value })} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">To Date</label>
+                <input type="date" className="input" value={leaveForm.toDate} onChange={e => setLeaveForm({ ...leaveForm, toDate: e.target.value })} />
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Reason (optional)</label>
+              <input type="text" className="input" placeholder="e.g. Sick, Vacation" value={leaveForm.reason} onChange={e => setLeaveForm({ ...leaveForm, reason: e.target.value })} />
+            </div>
+
+            <div className="flex gap-2 justify-end mt-4">
+              <button className="btn-ghost" onClick={() => setLeaveModalEmp(null)}>Cancel</button>
+              <button className="btn-primary bg-amber-500 hover:bg-amber-600 text-white border-0" onClick={assignLeave} disabled={saving}>
+                {saving ? 'Saving…' : 'Assign Leave'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
