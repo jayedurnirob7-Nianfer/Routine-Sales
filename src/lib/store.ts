@@ -330,3 +330,28 @@ export function getWeekdayDatesInMonth(year: number, month: number, weekday: num
 export function getDateAssignments(roster: RosterData, date: string): ShiftAssignment[] {
   return roster[date] ?? [];
 }
+
+// ─── Night shift monthly progress ──────────────────────────────
+// Counts how many "night" shifts an employee has assigned across the
+// current calendar month (1st to last day), then splits that total
+// into "completed" (date <= today) and "remaining" (date > today).
+export function getNightShiftProgress(
+  roster: RosterData, employeeId: string, todayDate: string = todayKey(),
+): { completed: number; total: number; remaining: number; year: number; month: number } {
+  const [y, m] = todayDate.split('-').map(Number);
+  const daysInMonth = new Date(y, m, 0).getDate();
+
+  let completed = 0;
+  let total = 0;
+
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const assignment = (roster[dateStr] ?? []).find(a => a.employeeId === employeeId);
+    if (assignment?.shift === 'night') {
+      total += 1;
+      if (dateStr <= todayDate) completed += 1;
+    }
+  }
+
+  return { completed, total, remaining: total - completed, year: y, month: m };
+}
