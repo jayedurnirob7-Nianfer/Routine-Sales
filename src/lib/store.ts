@@ -125,7 +125,8 @@ export async function upsertAssignment(roster: RosterData, date: string, assignm
   return next;
 }
 
-export function applyWeeklyOffDay(
+// FIXED THE MISSING ASYNC KEYWORD HERE!
+export async function applyWeeklyOffDay(
   roster: RosterData, employee: Employee,
   offWeekday: number, year: number, month: number, startDay: number = 1
 ): Promise<RosterData> {
@@ -135,7 +136,7 @@ export function applyWeeklyOffDay(
     const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     const isOff   = new Date(year, month - 1, d).getDay() === offWeekday;
     updated = upsertAssignmentLocal(updated, dateStr, {
-      employeeId: employee.id, // Fixed: uses Row ID
+      employeeId: employee.id,
       shift: isOff ? 'off' : (employee.defaultShift ?? 'morning'),
       effectiveFrom: dateStr, effectiveTo: dateStr,
     });
@@ -149,7 +150,7 @@ export async function overrideSingleDay(
   date: string, shift: ShiftType, reason?: string,
 ): Promise<RosterData> {
   return upsertAssignment(roster, date, {
-    employeeId: employee.id, // Fixed: uses Row ID
+    employeeId: employee.id,
     shift, effectiveFrom: date, effectiveTo: date, reason, isOffDayOverride: true,
   });
 }
