@@ -147,7 +147,10 @@ export default function RosterPage() {
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
             {activeEmployees.map(emp => {
-              // If shift filter is active, check if this employee has that shift on any of the 15 days
+              // If a shift filter is active, only keep rows where this
+              // employee has at least one matching day — but the cells
+              // themselves are filtered individually below, so other
+              // shifts on non-matching days won't be shown.
               if (filterShift !== 'all') {
                 const hasShift = days.some(date => getAssignment(emp.id, date)?.shift === filterShift);
                 if (!hasShift) return null;
@@ -163,20 +166,26 @@ export default function RosterPage() {
                     const assignment = getAssignment(emp.id, date);
                     const isPast = date < todayKey();
                     const isToday = date === todayKey();
+
+                    // When a specific shift filter is active, hide cells
+                    // that don't match it — only the matching shift type
+                    // is ever shown.
+                    const matchesFilter = filterShift === 'all' || assignment?.shift === filterShift;
+
                     return (
                       <td
                         key={date}
                         className={`px-2 py-2 text-center
                           ${isToday ? 'bg-teal-50/50 dark:bg-teal-900/10' : ''}
                           ${isPast ? 'opacity-50' : ''}`}>
-                        {assignment ? (
+                        {assignment && matchesFilter ? (
                           <button
                             disabled={!isAdmin || isPast}
                             onClick={() => isAdmin && !isPast && setAssignTarget({ emp, date })}
                             className="w-full">
                             <ShiftBadge shift={assignment.shift} />
                           </button>
-                        ) : (
+                        ) : !assignment && filterShift === 'all' ? (
                           isAdmin && !isPast ? (
                             <button
                               onClick={() => setAssignTarget({ emp, date })}
@@ -188,6 +197,8 @@ export default function RosterPage() {
                           ) : (
                             <span className="text-gray-200 dark:text-gray-700">—</span>
                           )
+                        ) : (
+                          <span className="text-gray-200 dark:text-gray-700">—</span>
                         )}
                       </td>
                     );
