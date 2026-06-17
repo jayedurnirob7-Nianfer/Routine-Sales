@@ -14,9 +14,8 @@ export const SHIFT_INFO: Record<ShiftType, ShiftInfo> = {
   off:     { type: 'off', label: 'Off Day', time: 'No Shift', color: 'text-gray-600 dark:text-gray-400', bg: 'bg-gray-100 dark:bg-gray-800', border: 'border-gray-200 dark:border-gray-700' },
 };
 
-// ─── localStorage helpers ─────────────────────────────────────────
 const LS_KEY = 'rs_all_v2';
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const CACHE_TTL = 5 * 60 * 1000;
 
 function lsGet<T>(key: string): { data: T; ts: number } | null {
   if (typeof window === 'undefined') return null;
@@ -25,14 +24,13 @@ function lsGet<T>(key: string): { data: T; ts: number } | null {
 }
 function lsSet(key: string, data: unknown): void {
   if (typeof window === 'undefined') return;
-  try { localStorage.setItem(key, JSON.stringify({ data, ts: Date.now() })); } catch { /* quota */ }
+  try { localStorage.setItem(key, JSON.stringify({ data, ts: Date.now() })); } catch {}
 }
 function lsClear(key: string): void {
   if (typeof window === 'undefined') return;
-  try { localStorage.removeItem(key); } catch { /* ignore */ }
+  try { localStorage.removeItem(key); } catch {}
 }
 
-// ─── Type converters ──────────────────────────────────────────────
 function toISODate(dateStr: string): string {
   if (!dateStr) return '';
   if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr;
@@ -56,7 +54,7 @@ function toEmployee(e: Record<string, unknown>): Employee {
     name:         String(e.name         ?? ''),
     employeeId:   String(e.employeeId   ?? ''),
     role:         String(e.role         ?? ''),
-    active:       e.active === true || e.active === 'TRUE',
+    active:       true, // ✅ FORCED TRUE to prevent Roster from disappearing!
     createdAt:    toISODate(String(e.createdAt ?? '')),
     weeklyOffDay: typeof e.weeklyOffDay === 'number' ? e.weeklyOffDay : (e.weeklyOffDay ? parseInt(String(e.weeklyOffDay), 10) : undefined),
     defaultShift: (e.defaultShift as ShiftType) || 'morning',
@@ -65,7 +63,7 @@ function toEmployee(e: Record<string, unknown>): Employee {
 
 function toAssignment(a: Record<string, unknown>): ShiftAssignment {
   return {
-    employeeId:       String(a.employeeId    ?? ''),
+    employeeId:       String(a.employeeId ?? ''),
     shift:            (a.shift as ShiftType) ?? 'morning',
     effectiveFrom:    toISODate(String(a.effectiveFrom ?? '')),
     effectiveTo:      toISODate(String(a.effectiveTo  ?? '')),
@@ -82,7 +80,6 @@ function toRoster(raw: Record<string, unknown[]>): RosterData {
   return roster;
 }
 
-// ─── Cached state ─────────────────────────────────────────────────
 interface AllData {
   employees: Employee[];
   roster: RosterData;
@@ -97,13 +94,10 @@ export function invalidateCache() {
   lsClear(LS_KEY);
 }
 
-// ─── Core API ─────────────────────────────────────────────────────
-// Single GET call — the new Apps Script only supports ?action=getAll
 async function fetchAll(): Promise<AllData> {
   const res = await fetch(`${API_URL}?action=getAll`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const json = await res.json();
-  // New Apps Script returns status:'ok' (NOT 'success')
   if (json.status !== 'ok') throw new Error(json.message || 'API error');
   const d = json.data;
   const result: AllData = {
@@ -125,21 +119,16 @@ async function fetchAll(): Promise<AllData> {
 }
 
 async function getAll(): Promise<AllData> {
-  // 1. In-memory (fastest)
   if (memCache) return memCache;
-  // 2. localStorage (instant on repeat visits)
   const cached = lsGet<AllData>(LS_KEY);
   if (cached) {
     memCache = cached.data;
-    // Refresh in background if stale
     if (Date.now() - cached.ts > CACHE_TTL) fetchAll().catch(() => {});
     return memCache;
   }
-  // 3. Fetch from API (first visit)
   return fetchAll();
 }
 
-// POST — action MUST be inside the body (Apps Script reads body.action)
 async function apiPost(action: string, payload: Record<string, unknown>): Promise<void> {
   await fetch(API_URL, {
     method: 'POST',
@@ -149,26 +138,15 @@ async function apiPost(action: string, payload: Record<string, unknown>): Promis
   });
 }
 
-// ─── Public data accessors ────────────────────────────────────────
-export async function getEmployees(): Promise<Employee[]> {
-  return (await getAll()).employees;
-}
-
-export async function getRoster(): Promise<RosterData> {
-  return (await getAll()).roster;
-}
-
+export async function getEmployees(): Promise<Employee[]> { return (await getAll()).employees; }
+export async function getRoster(): Promise<RosterData> { return (await getAll()).roster; }
 export async function getSiteSettings(): Promise<SiteSettings> {
-  try { return (await getAll()).settings; }
-  catch { return { siteName: 'PXL Sales Routine', logoEmoji: '⬡' }; }
+  try { return (await getAll()).settings; } catch { return { siteName: 'PXL', logoEmoji: '⬡' }; }
 }
-
 export async function getAdminCreds(): Promise<AdminCredentials> {
-  try { return (await getAll()).auth; }
-  catch { return {}; }
+  try { return (await getAll()).auth; } catch { return {}; }
 }
 
-// ─── Save functions ───────────────────────────────────────────────
 export async function saveEmployees(employees: Employee[]): Promise<void> {
   await apiPost('saveEmployees', { employees });
   if (memCache) { memCache = { ...memCache, employees }; lsSet(LS_KEY, memCache); }
@@ -180,18 +158,17 @@ export async function saveRoster(roster: RosterData): Promise<void> {
 }
 
 export async function saveSiteSettings(settings: SiteSettings): Promise<void> {
-  // Apps Script action is 'saveSettings' (not 'saveSiteSettings')
   await apiPost('saveSettings', { settings });
   if (memCache) { memCache = { ...memCache, settings }; lsSet(LS_KEY, memCache); }
 }
 
-export async function saveAdminCreds(creds: AdminCredentials): Promise<void> {
-  // Apps Script action is 'saveAuth' (not 'saveAdminCreds')
-  await apiPost('saveAuth', { auth: creds });
-  if (memCache) { memCache = { ...memCache, auth: creds }; lsSet(LS_KEY, memCache); }
+// ─── ROBUST ID HELPERS ───────────────────────────────────────────
+// These functions check BOTH employee.id and employee.employeeId
+
+export function getAssignment(roster: RosterData, employee: Employee, date: string): ShiftAssignment | undefined {
+  return (roster[date] ?? []).find(a => a.employeeId === employee.id || a.employeeId === employee.employeeId);
 }
 
-// ─── Assignment helpers ───────────────────────────────────────────
 export function upsertAssignmentLocal(roster: RosterData, date: string, assignment: ShiftAssignment): RosterData {
   const others = (roster[date] ?? []).filter(a => a.employeeId !== assignment.employeeId);
   return { ...roster, [date]: [...others, assignment] };
@@ -232,36 +209,34 @@ export async function overrideSingleDay(
   });
 }
 
-// ─── Leave helpers ────────────────────────────────────────────────
-export function getLeaveOnDate(roster: RosterData, employeeId: string, dateStr: string): LeaveRecord | null {
-  const a = (roster[dateStr] ?? []).find(x => x.employeeId === employeeId && x.reason?.startsWith('LEAVE|'));
+export function getLeaveOnDate(roster: RosterData, employee: Employee, dateStr: string): LeaveRecord | null {
+  const a = (roster[dateStr] ?? []).find(x => (x.employeeId === employee.id || x.employeeId === employee.employeeId) && x.reason?.startsWith('LEAVE|'));
   if (a) {
     const parts = a.reason!.split('|');
-    return { employeeId, fromDate: parts[1], toDate: parts[2], reason: parts[3] || undefined };
+    return { employeeId: employee.id, fromDate: parts[1], toDate: parts[2], reason: parts[3] || undefined };
   }
   return null;
 }
 
-export function isOnLeave(roster: RosterData, employeeId: string, dateStr: string): boolean {
-  return !!getLeaveOnDate(roster, employeeId, dateStr);
+export function isOnLeave(roster: RosterData, employee: Employee, dateStr: string): boolean {
+  return !!getLeaveOnDate(roster, employee, dateStr);
 }
 
-export function getActiveLeave(roster: RosterData, employeeId: string): LeaveRecord | null {
+export function getActiveLeave(roster: RosterData, employee: Employee): LeaveRecord | null {
   const today = todayKey();
   for (let i = -3; i <= 31; i++) {
     const dt = new Date(new Date(today + 'T00:00:00').getTime() + i * 86400000);
     const dateStr = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
-    const a = (roster[dateStr] ?? []).find(x => x.employeeId === employeeId && x.reason?.startsWith('LEAVE|'));
+    const a = (roster[dateStr] ?? []).find(x => (x.employeeId === employee.id || x.employeeId === employee.employeeId) && x.reason?.startsWith('LEAVE|'));
     if (a) {
       const parts = a.reason!.split('|');
-      if (parts[2] >= today) return { employeeId, fromDate: parts[1], toDate: parts[2], reason: parts[3] || undefined };
+      if (parts[2] >= today) return { employeeId: employee.id, fromDate: parts[1], toDate: parts[2], reason: parts[3] || undefined };
     }
   }
   return null;
 }
 
 // ─── Date utilities ───────────────────────────────────────────────
-// Switches "today" at exactly 7 AM BDT (UTC+6)
 export function getEffectiveDate(inputDate?: Date): Date {
   const date = inputDate || new Date();
   const utc = date.getTime() + (date.getTimezoneOffset() * 60000);
@@ -301,19 +276,15 @@ export function getWeekdayDatesInMonth(year: number, month: number, weekday: num
   return dates;
 }
 
-export function getDateAssignments(roster: RosterData, date: string): ShiftAssignment[] {
-  return roster[date] ?? [];
-}
-
 // ─── Night Shift Progress ─────────────────────────────────────────
 export function getNightShiftProgress(
-  roster: RosterData, employeeId: string, selectedDate: string = todayKey(),
+  roster: RosterData, employee: Employee, selectedDate: string = todayKey(),
 ) {
   function shiftOn(dateStr: string): ShiftType | null {
-    const a = (roster[dateStr] ?? []).find(a => a.employeeId === employeeId);
+    const a = getAssignment(roster, employee, dateStr);
     return a ? a.shift : null;
   }
-  function isLeave(dateStr: string) { return isOnLeave(roster, employeeId, dateStr); }
+  function isLeave(dateStr: string) { return isOnLeave(roster, employee, dateStr); }
   function offsetDate(dateStr: string, days: number): string {
     const [y, m, d] = dateStr.split('-').map(Number);
     const dt = new Date(y, m - 1, d + days);
