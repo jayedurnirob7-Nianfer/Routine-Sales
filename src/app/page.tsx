@@ -41,8 +41,31 @@ export default function DashboardPage() {
       .filter(Boolean) as Employee[];
   }
 
-  function getOffEmployees(date: string = today): Employee[] {
-    return getShiftEmployees('off', date);
+  function prevDateKey(date: string): string {
+    const [y, m, d] = date.split('-').map(Number);
+    const dt = new Date(y, m - 1, d - 1);
+    return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+  }
+
+  // For a given date, find everyone off that day and bucket them under
+  // the shift card matching their assignment the day before. If
+  // yesterday was also off (or no record), they land in an "unsorted"
+  // bucket which we render under Morning, clearly labeled.
+  function getOffEmployeesByPrevShift(date: string): Record<ShiftType, Employee[]> {
+    const offToday = getShiftEmployees('off', date);
+    const grouped: Record<ShiftType, Employee[]> = { morning: [], evening: [], night: [], off: [] };
+    const yesterday = prevDateKey(date);
+
+    offToday.forEach(emp => {
+      const yesterdayAssignment = (roster[yesterday] ?? []).find(a => a.employeeId === emp.id);
+      if (yesterdayAssignment && TODAY_SHIFTS.includes(yesterdayAssignment.shift)) {
+        grouped[yesterdayAssignment.shift].push(emp);
+      } else {
+        // No usable prior-day shift (back-to-back off days, or no data) — unsorted.
+        grouped.off.push(emp);
+      }
+    });
+    return grouped;
   }
 
   const all15Days = get15Days(today);
@@ -50,14 +73,18 @@ export default function DashboardPage() {
   // Group shifts by day for the next 14 days (excluding today, which has its own section above)
   function getUpcomingDays() {
     const upcomingDates = all15Days.filter(date => date !== today);
-    return upcomingDates.map(date => ({
-      date,
-      shifts: TODAY_SHIFTS.map(shift => ({
-        shift,
-        employees: getShiftEmployees(shift, date),
-      })),
-      offEmployees: getOffEmployees(date),
-    }));
+    return upcomingDates.map(date => {
+      const offByShift = getOffEmployeesByPrevShift(date);
+      return {
+        date,
+        shifts: TODAY_SHIFTS.map(shift => ({
+          shift,
+          employees: getShiftEmployees(shift, date),
+          offEmployees: offByShift[shift],
+        })),
+        unsortedOff: offByShift.off,
+      };
+    });
   }
 
   if (loading) {
@@ -72,9 +99,9 @@ export default function DashboardPage() {
   }
 
   const upcomingDays = getUpcomingDays();
-  const todayOffEmployees = getOffEmployees();
+  const todayOffByShift = getOffEmployeesByPrevShift(today);
 
-  function ShiftCard({ shift, employees }: { shift: ShiftType; employees: Employee[] }) {
+  function ShiftCard({ shift, employees, offEmployees }: { shift: ShiftType; employees: Employee[]; offEmployees: Employee[] }) {
     const info = SHIFT_INFO[shift];
     return (
       <div className="card overflow-hidden">
@@ -87,7 +114,7 @@ export default function DashboardPage() {
             <div className="text-3xl font-bold">{employees.length}</div>
           </div>
         </div>
-        <div className="p-4">
+        <div className="p-4 space-y-3">
           {employees.length === 0 ? (
             <p className="text-gray-400 text-sm">No one assigned</p>
           ) : (
@@ -105,25 +132,39 @@ export default function DashboardPage() {
               ))}
             </div>
           )}
+
+          {offEmployees.length > 0 && (
+            <div className="pt-2 border-t border-gray-100 dark:border-gray-800 space-y-2">
+              <div className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">🛌 Off Today</div>
+              {offEmployees.map(emp => (
+                <div key={emp.id} className="flex items-center gap-2 opacity-60">
+                  <div className="w-7 h-7 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-xs font-bold text-gray-500 dark:text-gray-400">
+                    {emp.name.charAt(0)}
+                  </div>
+                  <div>
+                    <div className="text-sm font-medium line-through text-gray-400">{emp.name}</div>
+                    <div className="text-xs text-gray-400">{emp.employeeId} · {emp.role}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     );
   }
 
-  function OffDayCard({ employees }: { employees: Employee[] }) {
+  function UnsortedOffCard({ employees }: { employees: Employee[] }) {
     if (employees.length === 0) return null;
     return (
-      <div className="card overflow-hidden border border-gray-100 dark:border-gray-800">
-        <div className={`bg-gradient-to-r ${shiftColors.off} p-3 text-white`}>
-          <div className="flex items-center justify-between">
-            <div className="text-sm font-medium opacity-90">{shiftIcons.off} Off Day</div>
-            <div className="text-2xl font-bold">{employees.length}</div>
+      <div className="card overflow-hidden border border-dashed border-gray-300 dark:border-gray-700">
+        <div className="p-3 bg-gray-50 dark:bg-gray-800/60">
+          <div className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold mb-2">
+            🛌 Off Day (no prior shift on record)
           </div>
-        </div>
-        <div className="p-3">
           <div className="flex flex-wrap gap-3">
             {employees.map(emp => (
-              <div key={emp.id} className="flex items-center gap-2 px-2 py-1 rounded-lg bg-gray-50 dark:bg-gray-800/60">
+              <div key={emp.id} className="flex items-center gap-2 px-2 py-1 rounded-lg bg-white dark:bg-gray-900">
                 <div className="w-6 h-6 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-[10px] font-bold text-gray-500 dark:text-gray-400">
                   {emp.name.charAt(0)}
                 </div>
@@ -148,10 +189,15 @@ export default function DashboardPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {TODAY_SHIFTS.map(shift => (
-          <ShiftCard key={shift} shift={shift} employees={getShiftEmployees(shift)} />
+          <ShiftCard
+            key={shift}
+            shift={shift}
+            employees={getShiftEmployees(shift)}
+            offEmployees={todayOffByShift[shift]}
+          />
         ))}
       </div>
-      <OffDayCard employees={todayOffEmployees} />
+      <UnsortedOffCard employees={todayOffByShift.off} />
 
       <div className="space-y-8">
         <h2 className="text-lg font-semibold">Upcoming Shifts (Next 14 Days)</h2>
@@ -162,11 +208,11 @@ export default function DashboardPage() {
               {new Date(day.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {day.shifts.map(({ shift, employees }) => (
-                <ShiftCard key={`${day.date}-${shift}`} shift={shift} employees={employees} />
+              {day.shifts.map(({ shift, employees, offEmployees }) => (
+                <ShiftCard key={`${day.date}-${shift}`} shift={shift} employees={employees} offEmployees={offEmployees} />
               ))}
             </div>
-            <OffDayCard employees={day.offEmployees} />
+            <UnsortedOffCard employees={day.unsortedOff} />
           </div>
         ))}
       </div>
