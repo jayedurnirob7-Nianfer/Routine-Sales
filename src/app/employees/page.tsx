@@ -90,28 +90,37 @@ export default function EmployeesPage() {
     if (diffDays > 2) { alert('Leave can be a maximum of 3 days (e.g. Jun 1 to Jun 3)'); return; }
 
     setSaving(true);
-    const otherLeaves = leaves.filter(l => l.employeeId !== leaveModalEmp.employeeId);
-    const newLeaves = [...otherLeaves, {
-      employeeId: leaveModalEmp.employeeId,
-      fromDate: leaveForm.fromDate,
-      toDate: leaveForm.toDate,
-      reason: leaveForm.reason
-    }];
-    await saveLeaves(newLeaves);
-    setLeaves(newLeaves);
-    setLeaveModalEmp(null);
-    setSaving(false);
+    try {
+      const otherLeaves = leaves.filter(l => l.employeeId !== leaveModalEmp.employeeId);
+      const newLeaves = [...otherLeaves, {
+        employeeId: leaveModalEmp.employeeId,
+        fromDate: leaveForm.fromDate,
+        toDate: leaveForm.toDate,
+        reason: leaveForm.reason
+      }];
+      await saveLeaves(newLeaves);
+      setLeaves(newLeaves);
+      setLeaveModalEmp(null);
+    } catch (err: any) {
+      alert("Failed to save. Did you copy the new Code.gs into Google Apps Script? Error: " + err.message);
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function removeLeave(leave: LeaveRecord) {
     if (!confirm('Remove this leave?')) return;
-    const newLeaves = leaves.filter(l => l !== leave);
-    await saveLeaves(newLeaves);
-    setLeaves(newLeaves);
+    try {
+      const newLeaves = leaves.filter(l => l !== leave);
+      await saveLeaves(newLeaves);
+      setLeaves(newLeaves);
+    } catch (err: any) {
+      alert("Failed to remove. Error: " + err.message);
+    }
   }
 
   const upcoming15 = selected ? get15Days(todayKey()).map(date => {
-    const a = (roster[date] ?? []).find(x => x.employeeId === selected.id);
+    const a = (roster[date] ?? []).find(x => x.employeeId === selected.employeeId);
     return { date, assignment: a };
   }) : [];
 
