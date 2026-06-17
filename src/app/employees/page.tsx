@@ -246,7 +246,7 @@ export default function EmployeesPage() {
                     <span>·</span>
                     <span className="text-sm">{selected.role}</span>
                   </div>
-                  <div className="text-xs text-gray-400 mt-2">Added: {new Date(selected.createdAt + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</div>
+                  {/* ✅ FIXED: Removed the "Added: June 2026" text from here */}
                 </div>
               </div>
               {isAdmin && (
@@ -290,11 +290,12 @@ export default function EmployeesPage() {
                 })()}
               </div>
 
-              <div className="card p-6 border border-gray-100 dark:border-gray-800 shadow-sm">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2"><span className="text-lg">🌙</span> Night Shift Tracker</h3>
-                </div>
-                {nightProgress && nightProgress.totalNights > 0 ? (
+              {/* ✅ FIXED: Only render this entire card if there is an active night shift block! */}
+              {nightProgress && nightProgress.totalNights > 0 && (
+                <div className="card p-6 border border-gray-100 dark:border-gray-800 shadow-sm">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2"><span className="text-lg">🌙</span> Night Shift Tracker</h3>
+                  </div>
                   <div className="space-y-4">
                     <div className="flex justify-between items-end">
                       <div>
@@ -315,12 +316,8 @@ export default function EmployeesPage() {
                       Block: {nightProgress.rangeFrom.toLocaleDateString()} — {nightProgress.rangeTo.toLocaleDateString()}
                     </div>
                   </div>
-                ) : (
-                  <div className="h-full min-h-[100px] flex items-center justify-center bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-dashed border-gray-200 dark:border-gray-700">
-                    <p className="text-gray-400 text-sm italic">No active night shift block found.</p>
-                  </div>
-                )}
-              </div>
+                </div>
+              )}
             </div>
 
             <div className="card p-6 border border-gray-100 dark:border-gray-800 shadow-sm mt-4">
