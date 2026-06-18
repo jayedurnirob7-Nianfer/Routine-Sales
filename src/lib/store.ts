@@ -293,74 +293,40 @@ export function getWeekdayDatesInMonth(year: number, month: number, weekday: num
   return dates;
 }
 
-// ✅ FIXED: Accurately scans for only currently assigned roster days!
+// ✅ FIXED: Counts night shifts in the current month only.
+// Completed = nights worked from 1st of month up to (but NOT including) today.
+// Remaining = nights scheduled from today to end of month.
+// Off days are excluded (they have shift='off', not 'night').
 export function getNightShiftProgress(
   roster: RosterData, employee: Employee, selectedDate: string = todayKey(),
 ) {
-  function offsetDate(dateStr: string, days: number): string {
-    const [y, m, d] = dateStr.split('-').map(Number);
-    const dt = new Date(y, m - 1, d + days);
-    return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
-  }
+  const [year, month] = selectedDate.split('-').map(Number);
+  const daysInMonth = new Date(year, month, 0).getDate();
 
-  let inNightBlock = false;
-  const current = getAssignment(roster, employee, selectedDate);
-  if (current && current.shift === 'night') {
-    inNightBlock = true;
-  } else if (current && current.shift === 'off') {
-    for (let i = 1; i <= 2; i++) {
-      const p = getAssignment(roster, employee, offsetDate(selectedDate, -i));
-      if (p && p.shift === 'night') { inNightBlock = true; break; }
-      const n = getAssignment(roster, employee, offsetDate(selectedDate, i));
-      if (n && n.shift === 'night') { inNightBlock = true; break; }
+  let completed = 0;
+  let remaining = 0;
+
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const assignment = getAssignment(roster, employee, dateStr);
+    if (!assignment || assignment.shift !== 'night') continue;
+    if (isOnLeave(roster, employee, dateStr)) continue;
+
+    if (dateStr < selectedDate) {
+      completed++;
+    } else {
+      // today and future days count as remaining
+      remaining++;
     }
   }
 
-  if (!inNightBlock) {
-    const dt = new Date(selectedDate + 'T00:00:00');
-    return { rangeFrom: dt, rangeTo: dt, totalNights: 0, completedNights: 0, remainingNights: 0 };
-  }
-
-  let minStartStr = selectedDate;
-  let maxEndStr = selectedDate;
-  
-  let curBack = offsetDate(selectedDate, -1);
-  while (true) {
-     const a = getAssignment(roster, employee, curBack);
-     if (a && (a.shift === 'night' || a.shift === 'off')) {
-        minStartStr = curBack;
-        curBack = offsetDate(curBack, -1);
-     } else {
-        break; 
-     }
-  }
-
-  let curFwd = offsetDate(selectedDate, 1);
-  while (true) {
-     const a = getAssignment(roster, employee, curFwd);
-     if (a && (a.shift === 'night' || a.shift === 'off')) {
-        maxEndStr = curFwd;
-        curFwd = offsetDate(curFwd, 1);
-     } else {
-        break;
-     }
-  }
-
-  let completedNights = 0, remainingNights = 0;
-  let cur = minStartStr;
-  while (cur <= maxEndStr) {
-    const s = getAssignment(roster, employee, cur)?.shift;
-    if (s === 'night' && !isOnLeave(roster, employee, cur)) {
-      if (cur <= selectedDate) completedNights++;
-      else remainingNights++;
-    }
-    cur = offsetDate(cur, 1);
-  }
+  const total = completed + remaining;
 
   return {
-    rangeFrom: new Date(minStartStr + 'T00:00:00'),
-    rangeTo:   new Date(maxEndStr   + 'T00:00:00'),
-    totalNights: completedNights + remainingNights,
-    completedNights, remainingNights,
+    year,
+    month,
+    completed,
+    remaining,
+    total,
   };
 }
