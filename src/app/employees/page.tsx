@@ -204,6 +204,120 @@ export default function EmployeesPage() {
     );
   }
 
+  // --- REUSABLE DETAILS PANEL ---
+  // This allows us to render it as an Accordion on mobile, and a side-panel on desktop!
+  const detailsPanel = selected ? (
+    <div className="space-y-6 flex flex-col pt-2 pb-6">
+      <div className="card p-6 flex flex-col sm:flex-row sm:items-start justify-between gap-4 bg-gradient-to-br from-white to-gray-50 dark:from-gray-900 dark:to-gray-800 border-t-4 border-t-teal-500 shadow-sm">
+        <div className="flex items-center gap-4">
+          <div className="w-16 h-16 rounded-full bg-teal-100 dark:bg-teal-900/40 flex items-center justify-center text-teal-600 text-2xl font-bold border-2 border-white dark:border-gray-800 shadow-md">
+            {selected.name.charAt(0)}
+          </div>
+          <div>
+            <h2 className="text-2xl font-bold tracking-tight">{selected.name}</h2>
+            <div className="text-gray-500 mt-1 flex items-center gap-2">
+              <span className="bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded text-xs font-medium">ID: {selected.employeeId}</span>
+              <span>·</span>
+              <span className="text-sm">{selected.role}</span>
+            </div>
+          </div>
+        </div>
+        {isAdmin && (
+          <div className="flex gap-2">
+            <button className="btn-ghost text-xs border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm" onClick={() => openEdit(selected)}>✎ Edit</button>
+            <button className="btn-ghost text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm" onClick={() => remove(selected.id)}>🗑 Remove</button>
+          </div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <div className="card p-6 border border-gray-100 dark:border-gray-800 shadow-sm">
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2"><span className="text-lg">✈️</span> Leave Status</h3>
+            {isAdmin && (
+              <button className="btn-ghost text-xs text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 px-3 py-1.5 rounded-lg font-medium" onClick={() => setLeaveModal({ emp: selected })}>
+                + Register Leave
+              </button>
+            )}
+          </div>
+          {(() => {
+            const activeLeave = getActiveLeave(roster, selected);
+            if (!activeLeave) return <p className="text-gray-400 text-sm italic bg-gray-50 dark:bg-gray-800/50 p-4 rounded-xl text-center">No upcoming or active leave.</p>;
+            return (
+              <div className="bg-amber-50/50 dark:bg-amber-900/10 p-5 rounded-xl border border-amber-100 dark:border-amber-900/30">
+                <div className="font-semibold text-amber-800 dark:text-amber-400 mb-1 flex items-center gap-2">
+                  <span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span></span>
+                  Currently on Leave
+                </div>
+                <div className="text-sm text-amber-700 dark:text-amber-500/80 mb-3">
+                  {new Date(activeLeave.fromDate + 'T00:00:00').toLocaleDateString()} — {new Date(activeLeave.toDate + 'T00:00:00').toLocaleDateString()}
+                  {activeLeave.reason && ` · ${activeLeave.reason}`}
+                </div>
+                {isAdmin && (
+                  <button className="btn-primary bg-red-500 hover:bg-red-600 border-none shadow-sm text-xs px-4" onClick={() => removeLeave(activeLeave)} disabled={saving}>
+                    {saving ? 'Canceling...' : 'Cancel Leave'}
+                  </button>
+                )}
+              </div>
+            );
+          })()}
+        </div>
+
+        {nightProgress && nightProgress.totalNights > 0 && (
+          <div className="card p-6 border border-gray-100 dark:border-gray-800 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2"><span className="text-lg">🌙</span> Night Shift Tracker</h3>
+            </div>
+            <div className="space-y-4">
+              <div className="flex justify-between items-end">
+                <div>
+                  <div className="text-3xl font-black text-purple-600 tracking-tight">{nightProgress.completedNights} <span className="text-lg font-medium text-gray-400 tracking-normal">/ {nightProgress.totalNights}</span></div>
+                  <div className="text-xs font-medium text-gray-500 uppercase tracking-wider mt-1">Completed Nights</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-2xl font-bold text-amber-500">{nightProgress.remainingNights}</div>
+                  <div className="text-xs font-medium text-gray-500 uppercase tracking-wider mt-1">Remaining</div>
+                </div>
+              </div>
+              <div className="relative pt-1">
+                <div className="overflow-hidden h-2.5 text-xs flex rounded-full bg-purple-100 dark:bg-gray-800 inset-shadow-sm">
+                  <div style={{ width: `${(nightProgress.completedNights / nightProgress.totalNights) * 100}%` }} className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-gradient-to-r from-purple-500 to-indigo-500 rounded-full"></div>
+                </div>
+              </div>
+              <div className="text-xs text-gray-400 bg-gray-50 dark:bg-gray-800/50 p-2.5 rounded-lg text-center font-medium">
+                Block: {nightProgress.rangeFrom.toLocaleDateString()} — {nightProgress.rangeTo.toLocaleDateString()}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="card p-6 border border-gray-100 dark:border-gray-800 shadow-sm mt-4">
+        <div className="flex items-center justify-between mb-6">
+          <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2"><span className="text-lg">📅</span> Next 15 Days</h3>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+          {upcoming15.map(({ date, assignment }) => {
+            const isToday = date === todayKey();
+            return (
+              <div key={date} className={`p-3 rounded-xl border transition-all hover:shadow-md cursor-pointer
+                ${isToday ? 'bg-teal-50 dark:bg-teal-900/10 border-teal-200 dark:border-teal-800/50 shadow-sm ring-1 ring-teal-500/20' : 'bg-white dark:bg-gray-900 border-gray-100 dark:border-gray-800 hover:border-teal-300'}`}
+                onClick={() => isAdmin && setAssignTarget({ emp: selected, date })}>
+                <div className={`text-[10px] uppercase font-bold tracking-wider mb-0.5 ${isToday ? 'text-teal-600 dark:text-teal-400' : 'text-gray-400'}`}>
+                  {new Date(date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short' })} {isToday && '(TODAY)'}
+                </div>
+                <div className="text-sm font-bold text-gray-900 dark:text-gray-100 mb-2">
+                  {new Date(date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                </div>
+                {assignment ? <ShiftBadge shift={assignment.shift} /> : <div className="text-xs text-gray-400 italic">Not assigned</div>}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  ) : null;
+
   return (
     <div className="flex flex-col md:flex-row gap-6 h-[calc(100vh-6rem)]">
       {/* Left List */}
@@ -219,132 +333,30 @@ export default function EmployeesPage() {
         <div className="card flex-1 overflow-auto p-2 space-y-1">
           {filtered.length === 0 && <p className="text-gray-400 text-sm text-center mt-4">No employees found.</p>}
           {filtered.map(emp => (
-            <button key={emp.id} onClick={() => setSelected(emp)} className={`w-full text-left px-4 py-3 rounded-xl transition-all flex items-center justify-between ${selected?.id === emp.id ? 'bg-teal-50 dark:bg-teal-900/30 ring-1 ring-teal-500/50' : 'hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
-              <div>
-                <div className="font-medium text-sm">{emp.name}</div>
-                <div className="text-xs text-gray-500 mt-0.5">{emp.employeeId} · {emp.role}</div>
-              </div>
-              <div className="text-gray-300 text-lg">›</div>
-            </button>
+            <div key={emp.id} className="space-y-2 mb-1">
+              {/* Click toggles the selection: if already selected, it closes it! */}
+              <button onClick={() => setSelected(selected?.id === emp.id ? null : emp)} className={`w-full text-left px-4 py-3 rounded-xl transition-all flex items-center justify-between ${selected?.id === emp.id ? 'bg-teal-50 dark:bg-teal-900/30 ring-1 ring-teal-500/50' : 'hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
+                <div>
+                  <div className="font-medium text-sm">{emp.name}</div>
+                  <div className="text-xs text-gray-500 mt-0.5">{emp.employeeId} · {emp.role}</div>
+                </div>
+                <div className={`text-gray-400 text-lg transition-transform duration-200 ${selected?.id === emp.id ? 'rotate-90 text-teal-500' : ''}`}>›</div>
+              </button>
+              
+              {/* MOBILE ACCORDION VIEW */}
+              {selected?.id === emp.id && (
+                <div className="md:hidden px-1 animate-in slide-in-from-top-2 fade-in duration-200">
+                  {detailsPanel}
+                </div>
+              )}
+            </div>
           ))}
         </div>
       </div>
 
-      {/* Right Details */}
-      <div className="flex-1 min-w-0">
-        {selected ? (
-          <div className="space-y-6 h-full flex flex-col overflow-auto pr-2 pb-10">
-            <div className="card p-6 flex flex-col sm:flex-row sm:items-start justify-between gap-4 bg-gradient-to-br from-white to-gray-50 dark:from-gray-900 dark:to-gray-800 border-t-4 border-t-teal-500 shadow-sm">
-              <div className="flex items-center gap-4">
-                <div className="w-16 h-16 rounded-full bg-teal-100 dark:bg-teal-900/40 flex items-center justify-center text-teal-600 text-2xl font-bold border-2 border-white dark:border-gray-800 shadow-md">
-                  {selected.name.charAt(0)}
-                </div>
-                <div>
-                  <h2 className="text-2xl font-bold tracking-tight">{selected.name}</h2>
-                  <div className="text-gray-500 mt-1 flex items-center gap-2">
-                    <span className="bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded text-xs font-medium">ID: {selected.employeeId}</span>
-                    <span>·</span>
-                    <span className="text-sm">{selected.role}</span>
-                  </div>
-                  {/* ✅ FIXED: Removed the "Added: June 2026" text from here */}
-                </div>
-              </div>
-              {isAdmin && (
-                <div className="flex gap-2">
-                  <button className="btn-ghost text-xs border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm" onClick={() => openEdit(selected)}>✎ Edit</button>
-                  <button className="btn-ghost text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm" onClick={() => remove(selected.id)}>🗑 Remove</button>
-                </div>
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-              <div className="card p-6 border border-gray-100 dark:border-gray-800 shadow-sm">
-                <div className="flex items-center justify-between mb-6">
-                  <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2"><span className="text-lg">✈️</span> Leave Status</h3>
-                  {isAdmin && (
-                    <button className="btn-ghost text-xs text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 px-3 py-1.5 rounded-lg font-medium" onClick={() => setLeaveModal({ emp: selected })}>
-                      + Register Leave
-                    </button>
-                  )}
-                </div>
-                {(() => {
-                  const activeLeave = getActiveLeave(roster, selected);
-                  if (!activeLeave) return <p className="text-gray-400 text-sm italic bg-gray-50 dark:bg-gray-800/50 p-4 rounded-xl text-center">No upcoming or active leave.</p>;
-                  return (
-                    <div className="bg-amber-50/50 dark:bg-amber-900/10 p-5 rounded-xl border border-amber-100 dark:border-amber-900/30">
-                      <div className="font-semibold text-amber-800 dark:text-amber-400 mb-1 flex items-center gap-2">
-                        <span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span></span>
-                        Currently on Leave
-                      </div>
-                      <div className="text-sm text-amber-700 dark:text-amber-500/80 mb-3">
-                        {new Date(activeLeave.fromDate + 'T00:00:00').toLocaleDateString()} — {new Date(activeLeave.toDate + 'T00:00:00').toLocaleDateString()}
-                        {activeLeave.reason && ` · ${activeLeave.reason}`}
-                      </div>
-                      {isAdmin && (
-                        <button className="btn-primary bg-red-500 hover:bg-red-600 border-none shadow-sm text-xs px-4" onClick={() => removeLeave(activeLeave)} disabled={saving}>
-                          {saving ? 'Canceling...' : 'Cancel Leave'}
-                        </button>
-                      )}
-                    </div>
-                  );
-                })()}
-              </div>
-
-              {/* ✅ FIXED: Only render this entire card if there is an active night shift block! */}
-              {nightProgress && nightProgress.totalNights > 0 && (
-                <div className="card p-6 border border-gray-100 dark:border-gray-800 shadow-sm">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2"><span className="text-lg">🌙</span> Night Shift Tracker</h3>
-                  </div>
-                  <div className="space-y-4">
-                    <div className="flex justify-between items-end">
-                      <div>
-                        <div className="text-3xl font-black text-purple-600 tracking-tight">{nightProgress.completedNights} <span className="text-lg font-medium text-gray-400 tracking-normal">/ {nightProgress.totalNights}</span></div>
-                        <div className="text-xs font-medium text-gray-500 uppercase tracking-wider mt-1">Completed Nights</div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-2xl font-bold text-amber-500">{nightProgress.remainingNights}</div>
-                        <div className="text-xs font-medium text-gray-500 uppercase tracking-wider mt-1">Remaining</div>
-                      </div>
-                    </div>
-                    <div className="relative pt-1">
-                      <div className="overflow-hidden h-2.5 text-xs flex rounded-full bg-purple-100 dark:bg-gray-800 inset-shadow-sm">
-                        <div style={{ width: `${(nightProgress.completedNights / nightProgress.totalNights) * 100}%` }} className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-gradient-to-r from-purple-500 to-indigo-500 rounded-full"></div>
-                      </div>
-                    </div>
-                    <div className="text-xs text-gray-400 bg-gray-50 dark:bg-gray-800/50 p-2.5 rounded-lg text-center font-medium">
-                      Block: {nightProgress.rangeFrom.toLocaleDateString()} — {nightProgress.rangeTo.toLocaleDateString()}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="card p-6 border border-gray-100 dark:border-gray-800 shadow-sm mt-4">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2"><span className="text-lg">📅</span> Next 15 Days</h3>
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-                {upcoming15.map(({ date, assignment }) => {
-                  const isToday = date === todayKey();
-                  return (
-                    <div key={date} className={`p-3 rounded-xl border transition-all hover:shadow-md cursor-pointer
-                      ${isToday ? 'bg-teal-50 dark:bg-teal-900/10 border-teal-200 dark:border-teal-800/50 shadow-sm ring-1 ring-teal-500/20' : 'bg-white dark:bg-gray-900 border-gray-100 dark:border-gray-800 hover:border-teal-300'}`}
-                      onClick={() => isAdmin && setAssignTarget({ emp: selected, date })}>
-                      <div className={`text-[10px] uppercase font-bold tracking-wider mb-0.5 ${isToday ? 'text-teal-600 dark:text-teal-400' : 'text-gray-400'}`}>
-                        {new Date(date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short' })} {isToday && '(TODAY)'}
-                      </div>
-                      <div className="text-sm font-bold text-gray-900 dark:text-gray-100 mb-2">
-                        {new Date(date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                      </div>
-                      {assignment ? <ShiftBadge shift={assignment.shift} /> : <div className="text-xs text-gray-400 italic">Not assigned</div>}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        ) : (
+      {/* Right Details - DESKTOP ONLY */}
+      <div className="hidden md:flex flex-1 min-w-0 flex-col overflow-auto pr-2">
+        {selected ? detailsPanel : (
           <div className="h-full flex flex-col items-center justify-center text-gray-400 card border border-dashed border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/50">
             <div className="text-5xl mb-4 opacity-50 grayscale">👤</div>
             <p className="text-lg font-medium text-gray-500">Select an employee to view details</p>
