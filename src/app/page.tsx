@@ -1,7 +1,8 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
-import { getEmployees, getRoster, SHIFT_INFO, todayKey, formatDate, get15Days, getNightShiftProgress, invalidateCache, getAssignment } from '@/lib/store';
+import { getEmployees, getRoster, saveRoster, SHIFT_INFO, todayKey, formatDate, get15Days, getNightShiftProgress, invalidateCache, getAssignment } from '@/lib/store';
 import { Employee, RosterData, ShiftType } from '@/types';
+import { useAuth } from '@/lib/auth';
 
 const TODAY_SHIFTS: ShiftType[] = ['morning', 'evening', 'night'];
 
@@ -30,6 +31,7 @@ function Avatar({ emp, className = '' }: { emp: Employee, className?: string }) 
 }
 
 export default function DashboardPage() {
+  const { isAdmin } = useAuth();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [roster, setRoster]       = useState<RosterData>({});
   const [loading, setLoading]     = useState(true);
@@ -78,7 +80,40 @@ export default function DashboardPage() {
     return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
   }
 
-  // ✅ Intelligently routes Off days by looking up to 7 days in the past
+  function moveEmployee(shift: ShiftType, date: string, empId: string, direction: 'up' | 'down') {
+    const dayAssignments = [...(roster[date] ?? [])];
+    const index = dayAssignments.findIndex(a => a.shift === shift && (a.employeeId === empId || a.employeeId === empMap[empId]?.employeeId));
+    if (index === -1) return;
+
+    let swapIndex = -1;
+    if (direction === 'up') {
+      for (let i = index - 1; i >= 0; i--) {
+        if (dayAssignments[i].shift === shift) {
+          swapIndex = i;
+          break;
+        }
+      }
+    } else {
+      for (let i = index + 1; i < dayAssignments.length; i++) {
+        if (dayAssignments[i].shift === shift) {
+          swapIndex = i;
+          break;
+        }
+      }
+    }
+
+    if (swapIndex !== -1) {
+      const temp = dayAssignments[index];
+      dayAssignments[index] = dayAssignments[swapIndex];
+      dayAssignments[swapIndex] = temp;
+
+      const newRoster = { ...roster, [date]: dayAssignments };
+      setRoster(newRoster);
+      saveRoster(newRoster);
+    }
+  }
+
+  // ✅ Intelligently routes Off days by looking up to 7 days in the past (Fixes Nahid's issue!)
   function getOffEmployeesByPrevShift(date: string) {
     const offToday = getShiftEmployees('off', date);
     const grouped: Record<ShiftType, Employee[]> = { morning: [], evening: [], night: [], off: [] };
@@ -215,7 +250,7 @@ export default function DashboardPage() {
     );
   }
 
-  function EmployeeRow({ emp, date, shift, muted = false }: { emp: Employee; date: string; shift: ShiftType; muted?: boolean }) {
+  function EmployeeRow({ emp, date, shift, muted = false, isFirst, isLast, onMoveUp, onMoveDown }: { emp: Employee; date: string; shift: ShiftType; muted?: boolean; isFirst?: boolean; isLast?: boolean; onMoveUp?: () => void; onMoveDown?: () => void }) {
     const showPopover = isPopoverOpen(emp.id, date, shift);
     const progress = shift === 'night' ? getNightShiftProgress(roster, emp, today) : null; 
 
@@ -238,6 +273,12 @@ export default function DashboardPage() {
           </div>
           <div className={`text-xs ${muted ? 'text-gray-400/80 dark:text-gray-500' : 'text-gray-400'}`}>{emp.employeeId} · {emp.role.split('|IMG:')[0]}</div>
         </div>
+        {isAdmin && !muted && onMoveUp && onMoveDown && (
+          <div className="flex flex-col gap-0 ml-auto z-10" onClick={(e) => { e.stopPropagation(); e.nativeEvent.stopImmediatePropagation(); }}>
+            <button onClick={onMoveUp} disabled={isFirst} className="text-gray-300 hover:text-teal-500 disabled:opacity-20 px-2 py-0.5 leading-none text-xs" title="Move Up">▲</button>
+            <button onClick={onMoveDown} disabled={isLast} className="text-gray-300 hover:text-teal-500 disabled:opacity-20 px-2 py-0.5 leading-none text-xs" title="Move Down">▼</button>
+          </div>
+        )}
         {showPopover && <NightProgressPopover employee={emp} />}
       </div>
     );
@@ -256,21 +297,30 @@ export default function DashboardPage() {
             <div className="text-3xl font-bold">{employees.length}</div>
           </div>
         </div>
-        <div className="p-4 flex-1 flex flex-col">
+        <div className="p-4 flex-1 h-full flex flex-col justify-between">
           <div className="space-y-2 mb-4">
             {employees.length === 0 ? (
               <p className="text-gray-400 text-sm">No one assigned</p>
             ) : (
-              employees.map(emp => <EmployeeRow key={emp.id} emp={emp} date={date} shift={shift} />)
+              employees.map((emp, idx) => (
+                <EmployeeRow 
+                  key={emp.id} emp={emp} date={date} shift={shift} 
+                  isFirst={idx === 0} 
+                  isLast={idx === employees.length - 1}
+                  onMoveUp={() => moveEmployee(shift, date, emp.id, 'up')}
+                  onMoveDown={() => moveEmployee(shift, date, emp.id, 'down')}
+                />
+              ))
             )}
           </div>
 
           {offEmployees.length > 0 && (
-            <div className="mt-auto pt-4 border-t border-gray-100 dark:border-gray-800 space-y-2">
+            <div className="pt-4 border-t border-gray-100 dark:border-gray-800 space-y-2">
               <div className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold mb-2">
                 {date === today ? '🛌 Off Today' : '🛌 Off Day'}
               </div>
               {offEmployees.map(emp => (
+                // ✅ NEW BEAUTIFUL OFF-DAY STYLING
                 <div key={emp.id} className="bg-gray-50/80 dark:bg-gray-800/40 p-1.5 rounded-lg border border-dashed border-gray-200 dark:border-gray-700/60 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
                   <EmployeeRow emp={emp} date={date} shift={shift} muted />
                 </div>
