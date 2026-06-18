@@ -88,34 +88,47 @@ interface AllData {
 }
 
 let memCache: AllData | null = null;
+let fetchPromise: Promise<AllData> | null = null; // ✅ NEW: Prevents duplicate concurrent requests!
 
 export function invalidateCache() {
   memCache = null;
+  fetchPromise = null;
   lsClear(LS_KEY);
 }
 
 async function fetchAll(): Promise<AllData> {
-  const res = await fetch(`${API_URL}?action=getAll`);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const json = await res.json();
-  if (json.status !== 'ok') throw new Error(json.message || 'API error');
-  const d = json.data;
-  const result: AllData = {
-    employees: (d.employees as Record<string, unknown>[]).map(toEmployee),
-    roster:    toRoster(d.roster as Record<string, unknown[]>),
-    settings:  {
-      siteName:  String(d.settings?.siteName  ?? 'PXL Sales Routine'),
-      logoEmoji: String(d.settings?.logoEmoji ?? '⬡'),
-      logoImage: d.settings?.logoImage ? String(d.settings.logoImage) : undefined,
-    },
-    auth: {
-      username: d.auth?.username ? String(d.auth.username) : undefined,
-      password: d.auth?.password ? String(d.auth.password) : undefined,
-    },
-  };
-  memCache = result;
-  lsSet(LS_KEY, result);
-  return result;
+  // ✅ NEW: If a request is already running, return it! Don't hit Google Sheets twice.
+  if (fetchPromise) return fetchPromise;
+  
+  fetchPromise = (async () => {
+    try {
+      const res = await fetch(`${API_URL}?action=getAll`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      if (json.status !== 'ok') throw new Error(json.message || 'API error');
+      const d = json.data;
+      const result: AllData = {
+        employees: (d.employees as Record<string, unknown>[]).map(toEmployee),
+        roster:    toRoster(d.roster as Record<string, unknown[]>),
+        settings:  {
+          siteName:  String(d.settings?.siteName  ?? 'PXL Sales Routine'),
+          logoEmoji: String(d.settings?.logoEmoji ?? '⬡'),
+          logoImage: d.settings?.logoImage ? String(d.settings.logoImage) : undefined,
+        },
+        auth: {
+          username: d.auth?.username ? String(d.auth.username) : undefined,
+          password: d.auth?.password ? String(d.auth.password) : undefined,
+        },
+      };
+      memCache = result;
+      lsSet(LS_KEY, result);
+      return result;
+    } finally {
+      fetchPromise = null;
+    }
+  })();
+  
+  return fetchPromise;
 }
 
 async function getAll(): Promise<AllData> {
@@ -230,7 +243,6 @@ export function isOnLeave(roster: RosterData, employee: Employee, dateStr: strin
   return !!getLeaveOnDate(roster, employee, dateStr);
 }
 
-// ✅ Restored the missing getActiveLeave function!
 export function getActiveLeave(roster: RosterData, employee: Employee): LeaveRecord | null {
   const today = todayKey();
   for (let i = -3; i <= 31; i++) {
