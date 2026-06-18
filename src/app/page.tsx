@@ -45,7 +45,6 @@ export default function DashboardPage() {
 
   const empMap = Object.fromEntries(employees.map(e => [e.id, e]));
 
-  // Deduplicates arrays to fix the "Jayedur Rahman Nirob" duplication issue
   function uniqueEmps(emps: Employee[]) {
     const map = new Map<string, Employee>();
     emps.forEach(e => { if (e) map.set(e.id, e); });
@@ -113,6 +112,15 @@ export default function DashboardPage() {
         unsortedLeave: offByShift.leaveOff || [],
       };
     });
+  }
+
+  // --- HELPER FUNCTION: DYNAMIC OFF DAY LABELS ---
+  function getOffDayLabel(dateStr: string) {
+    const d = new Date(dateStr + 'T00:00:00');
+    const t = new Date(today + 'T00:00:00');
+    if (dateStr === today) return "Off Today";
+    if (d > t) return "Upcoming Offday";
+    return "Previous Offday";
   }
 
   if (loading) {
@@ -187,6 +195,7 @@ export default function DashboardPage() {
     );
   }
 
+  // --- ENLARGED TABLET TEXT SIZES ---
   function EmployeeRow({ emp, muted = false, date, shiftType }: { emp: Employee; muted?: boolean; date: string; shiftType?: ShiftType }) {
     const isSelected = selectedEmp?.emp.id === emp.id && selectedEmp?.date === date;
     let progressBadge = null;
@@ -201,16 +210,16 @@ export default function DashboardPage() {
       }
     }
     return (
-      <div className="relative flex items-center gap-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/40 rounded-lg -mx-1 px-1 py-0.5"
+      <div className="relative flex items-center gap-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/40 rounded-xl -mx-1 px-2 py-1.5"
         onClick={() => setSelectedEmp(isSelected ? null : { emp, date })}>
-        <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 bg-gray-100 dark:bg-gray-800 ${muted ? 'text-gray-400' : 'text-gray-600 dark:text-gray-300'}`}>
+        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0 bg-gray-100 dark:bg-gray-800 ${muted ? 'text-gray-400' : 'text-gray-600 dark:text-gray-300'}`}>
           {emp.name.charAt(0)}
         </div>
         <div>
-          <div className={`text-sm font-medium flex items-center ${muted ? 'text-gray-400' : ''}`}>
+          <div className={`text-base font-medium flex items-center ${muted ? 'text-gray-400' : ''}`}>
             {emp.name}{progressBadge}
           </div>
-          <div className="text-xs text-gray-400">{emp.employeeId} · {emp.role}</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">{emp.employeeId} · {emp.role}</div>
         </div>
         {isSelected && <NightProgressPopover employee={emp} date={date} />}
       </div>
@@ -230,17 +239,21 @@ export default function DashboardPage() {
             <div className="text-3xl font-bold">{employees.length}</div>
           </div>
         </div>
-        <div className="p-4 space-y-3">
-          {employees.length === 0 ? <p className="text-gray-400 text-sm">No one assigned</p> : <div className="space-y-2">{employees.map(emp => <EmployeeRow key={emp.id} emp={emp} date={date} shiftType={shift} />)}</div>}
+        <div className="p-4 space-y-1">
+          {employees.length === 0 ? <p className="text-gray-400 text-sm">No one assigned</p> : <div className="space-y-1">{employees.map(emp => <EmployeeRow key={emp.id} emp={emp} date={date} shiftType={shift} />)}</div>}
+          
+          {/* --- DISTINCT OFF DAY GRADIENT CARD --- */}
           {offEmployees.length > 0 && (
-            <div className="pt-2 border-t border-gray-100 dark:border-gray-800 space-y-2">
-              <div className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">🛌 Off Today</div>
+            <div className="p-3 mt-3 rounded-xl bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-800/50 dark:to-gray-800/20 border border-gray-100 dark:border-gray-700/50 space-y-2">
+              <div className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400 font-bold">🛌 {getOffDayLabel(date)}</div>
               {offEmployees.map(emp => <EmployeeRow key={emp.id} emp={emp} muted date={date} />)}
             </div>
           )}
+          
+          {/* --- DISTINCT LEAVE GRADIENT CARD --- */}
           {onLeaveEmployees.length > 0 && (
-            <div className="pt-2 border-t border-gray-100 dark:border-gray-800 space-y-2">
-              <div className="text-[10px] uppercase tracking-wide text-amber-500 font-semibold">✈️ On Leave</div>
+            <div className="p-3 mt-3 rounded-xl bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/10 border border-amber-100 dark:border-amber-900/30 space-y-2">
+              <div className="text-[10px] uppercase tracking-wide text-amber-600 dark:text-amber-500 font-bold">✈️ On Leave</div>
               {onLeaveEmployees.map(emp => <EmployeeRow key={emp.id} emp={emp} muted date={date} />)}
             </div>
           )}
@@ -252,25 +265,23 @@ export default function DashboardPage() {
   function UnsortedOffCard({ employees, onLeaveEmployees = [], date }: { employees: Employee[]; onLeaveEmployees?: Employee[]; date: string }) {
     if (employees.length === 0 && onLeaveEmployees.length === 0) return null;
     return (
-      <div className="card overflow-visible border border-dashed border-gray-300 dark:border-gray-700">
-        <div className="p-3 bg-gray-50 dark:bg-gray-800/60">
-          {employees.length > 0 && (
-            <div className="mb-3">
-              <div className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold mb-2">🛌 Off Day (no prior shift on record)</div>
-              <div className="flex flex-wrap gap-3">
-                {employees.map(emp => <div key={emp.id} className="relative"><EmployeeRow emp={emp} muted date={date} /></div>)}
-              </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+        {employees.length > 0 && (
+          <div className="p-4 rounded-xl bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-800/50 dark:to-gray-800/20 border border-gray-200 dark:border-gray-800/80">
+            <div className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400 font-bold mb-3">🛌 {getOffDayLabel(date)} (No prior shift on record)</div>
+            <div className="flex flex-col gap-1">
+              {employees.map(emp => <div key={emp.id} className="relative"><EmployeeRow emp={emp} muted date={date} /></div>)}
             </div>
-          )}
-          {onLeaveEmployees.length > 0 && (
-            <div className={employees.length > 0 ? 'pt-2 border-t border-gray-200 dark:border-gray-700' : ''}>
-              <div className="text-[10px] uppercase tracking-wide text-amber-500 font-semibold mb-2">✈️ On Leave (no prior shift on record)</div>
-              <div className="flex flex-wrap gap-3">
-                {onLeaveEmployees.map(emp => <div key={emp.id} className="relative"><EmployeeRow emp={emp} muted date={date} /></div>)}
-              </div>
+          </div>
+        )}
+        {onLeaveEmployees.length > 0 && (
+          <div className="p-4 rounded-xl bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/10 border border-amber-200 dark:border-amber-900/30">
+            <div className="text-[10px] uppercase tracking-wide text-amber-600 dark:text-amber-500 font-bold mb-3">✈️ On Leave (No prior shift on record)</div>
+            <div className="flex flex-col gap-1">
+              {onLeaveEmployees.map(emp => <div key={emp.id} className="relative"><EmployeeRow emp={emp} muted date={date} /></div>)}
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     );
   }
