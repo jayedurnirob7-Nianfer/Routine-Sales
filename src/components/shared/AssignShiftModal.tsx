@@ -86,7 +86,7 @@ export default function AssignShiftModal({ employee, date, currentShift, roster,
     }
   }
 
-  // NEW FEATURE: Clears out all shift data for the selected date range
+  // ✅ FIXED: Now properly deletes the assignment from the database
   async function handleClear() {
     if (!confirm('Are you sure you want to completely remove all assigned shifts for this date range?')) return;
     setSaving(true);
@@ -104,8 +104,8 @@ export default function AssignShiftModal({ employee, date, currentShift, roster,
         const d = String(current.getDate()).padStart(2, '0');
         const dateStr = `${y}-${m}-${d}`;
 
-        // Filters out this specific employee's assignment for this day, effectively deleting it
-        const others = (updated[dateStr] ?? []).filter(a => a.employeeId !== employee.id);
+        // Filter out both the hidden UUID and the public Employee ID to guarantee deletion
+        const others = (updated[dateStr] ?? []).filter(a => a.employeeId !== employee.id && a.employeeId !== employee.employeeId);
         updated = { ...updated, [dateStr]: others };
 
         current.setDate(current.getDate() + 1);
@@ -253,7 +253,6 @@ export default function AssignShiftModal({ employee, date, currentShift, roster,
         </div>
 
         <div className="flex items-center justify-between pt-2">
-          {/* New Clear Button to wipe out historical mistakes! */}
           <button 
             onClick={handleClear} 
             disabled={saving}
