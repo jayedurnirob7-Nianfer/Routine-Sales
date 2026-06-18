@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
-import { getEmployees, saveEmployees, getRoster, saveRoster, getActiveLeave, SHIFT_INFO, get15Days, todayKey, invalidateCache, getNightShiftProgress, getAssignment } from '@/lib/store';
+import { getEmployees, saveEmployees, getRoster, saveRoster, getActiveLeave, SHIFT_INFO, todayKey, invalidateCache, getNightShiftProgress, getAssignment } from '@/lib/store';
 import { Employee, RosterData, ShiftType } from '@/types';
 import { useAuth } from '@/lib/auth';
 import ShiftBadge from '@/components/shared/ShiftBadge';
@@ -145,10 +145,22 @@ export default function EmployeesPage() {
     }
   }
 
-  const upcoming15 = selected ? get15Days(todayKey()).map(date => {
-    const a = getAssignment(roster, selected, date);
-    return { date, assignment: a };
-  }) : [];
+  const currentMonthSchedule = selected ? (() => {
+    const todayStr = todayKey();
+    const [yyyy, mm] = todayStr.split('-');
+    const year = parseInt(yyyy, 10);
+    const month = parseInt(mm, 10) - 1;
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    
+    const schedule = [];
+    for (let i = 1; i <= daysInMonth; i++) {
+      const d = new Date(year, month, i);
+      const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      const a = getAssignment(roster, selected, dateStr);
+      schedule.push({ date: dateStr, assignment: a });
+    }
+    return schedule;
+  })() : [];
 
   const nightProgress = selected ? getNightShiftProgress(roster, selected) : null;
 
@@ -204,8 +216,6 @@ export default function EmployeesPage() {
     );
   }
 
-  // --- REUSABLE DETAILS PANEL ---
-  // This allows us to render it as an Accordion on mobile, and a side-panel on desktop!
   const detailsPanel = selected ? (
     <div className="space-y-6 flex flex-col pt-2 pb-6">
       <div className="card p-6 flex flex-col sm:flex-row sm:items-start justify-between gap-4 bg-gradient-to-br from-white to-gray-50 dark:from-gray-900 dark:to-gray-800 border-t-4 border-t-teal-500 shadow-sm">
@@ -294,10 +304,13 @@ export default function EmployeesPage() {
 
       <div className="card p-6 border border-gray-100 dark:border-gray-800 shadow-sm mt-4">
         <div className="flex items-center justify-between mb-6">
-          <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2"><span className="text-lg">📅</span> Next 15 Days</h3>
+          <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2">
+            <span className="text-lg">📅</span> 
+            {new Date(todayKey() + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })} Schedule
+          </h3>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-          {upcoming15.map(({ date, assignment }) => {
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-7 gap-3">
+          {currentMonthSchedule.map(({ date, assignment }) => {
             const isToday = date === todayKey();
             return (
               <div key={date} className={`p-3 rounded-xl border transition-all hover:shadow-md cursor-pointer
@@ -334,7 +347,6 @@ export default function EmployeesPage() {
           {filtered.length === 0 && <p className="text-gray-400 text-sm text-center mt-4">No employees found.</p>}
           {filtered.map(emp => (
             <div key={emp.id} className="space-y-2 mb-1">
-              {/* Click toggles the selection: if already selected, it closes it! */}
               <button onClick={() => setSelected(selected?.id === emp.id ? null : emp)} className={`w-full text-left px-4 py-3 rounded-xl transition-all flex items-center justify-between ${selected?.id === emp.id ? 'bg-teal-50 dark:bg-teal-900/30 ring-1 ring-teal-500/50' : 'hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
                 <div>
                   <div className="font-medium text-sm">{emp.name}</div>
