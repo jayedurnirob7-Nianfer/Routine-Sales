@@ -169,9 +169,16 @@ export function getAssignment(roster: RosterData, employee: Employee, date: stri
 }
 
 export function upsertAssignmentLocal(roster: RosterData, date: string, assignment: ShiftAssignment): RosterData {
-  const others = (roster[date] ?? []).filter(a => a.employeeId !== assignment.employeeId);
+  let empId1 = assignment.employeeId;
+  let empId2 = assignment.employeeId;
+  if (memCache) {
+    const emp = memCache.employees.find(e => e.id === assignment.employeeId || e.employeeId === assignment.employeeId);
+    if (emp) { empId1 = emp.id; empId2 = emp.employeeId; }
+  }
+  const others = (roster[date] ?? []).filter(a => a.employeeId !== empId1 && a.employeeId !== empId2);
   return { ...roster, [date]: [...others, assignment] };
 }
+
 export async function upsertAssignment(roster: RosterData, date: string, assignment: ShiftAssignment): Promise<RosterData> {
   const next = upsertAssignmentLocal(roster, date, assignment);
   await saveRoster(next);
@@ -186,10 +193,16 @@ export async function applyWeeklyOffDay(
   for (let d = startDay; d <= days; d++) {
     const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     const isOff = new Date(year, month - 1, d).getDay() === offWeekday;
+    
+    const existing = getAssignment(updated, employee, dateStr);
+    
     updated = upsertAssignmentLocal(updated, dateStr, {
       employeeId: employee.id,
-      shift: isOff ? 'off' : (employee.defaultShift ?? 'morning'),
-      effectiveFrom: dateStr, effectiveTo: dateStr,
+      shift: isOff ? 'off' : (existing ? existing.shift : (employee.defaultShift ?? 'morning')),
+      effectiveFrom: existing ? (existing.effectiveFrom || dateStr) : dateStr,
+      effectiveTo: existing ? (existing.effectiveTo || dateStr) : dateStr,
+      reason: existing ? existing.reason : undefined,
+      isOffDayOverride: isOff ? true : (existing ? existing.isOffDayOverride : false),
     });
   }
   await saveRoster(updated);
@@ -215,20 +228,6 @@ export function getLeaveOnDate(roster: RosterData, employee: Employee, dateStr: 
 
 export function isOnLeave(roster: RosterData, employee: Employee, dateStr: string): boolean {
   return !!getLeaveOnDate(roster, employee, dateStr);
-}
-
-export function getActiveLeave(roster: RosterData, employee: Employee): LeaveRecord | null {
-  const today = todayKey();
-  for (let i = -3; i <= 31; i++) {
-    const dt = new Date(new Date(today + 'T00:00:00').getTime() + i * 86400000);
-    const dateStr = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
-    const a = (roster[dateStr] ?? []).find(x => (x.employeeId === employee.id || x.employeeId === employee.employeeId) && x.reason?.startsWith('LEAVE|'));
-    if (a) {
-      const parts = a.reason!.split('|');
-      if (parts[2] >= today) return { employeeId: employee.id, fromDate: parts[1], toDate: parts[2], reason: parts[3] || undefined };
-    }
-  }
-  return null;
 }
 
 export function getEffectiveDate(inputDate?: Date): Date {
@@ -268,7 +267,6 @@ export function getWeekdayDatesInMonth(year: number, month: number, weekday: num
   return dates;
 }
 
-// ✅ REWRITTEN: Now perfectly bounds the calculation using exact 'effectiveFrom' / 'effectiveTo' block
 export function getNightShiftProgress(
   roster: RosterData, employee: Employee, selectedDate: string = todayKey(),
 ) {
@@ -278,38 +276,52 @@ export function getNightShiftProgress(
     return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
   }
 
-  let blockAssignment: ShiftAssignment | null = null;
+  let inNightBlock = false;
   const current = getAssignment(roster, employee, selectedDate);
-  
-  if (current?.shift === 'night') {
-    blockAssignment = current;
-  } else if (current?.shift === 'off' || !current) {
-    for (let i = 1; i <= 7; i++) {
-      const prevDate = offsetDate(selectedDate, -i);
-      const prev = getAssignment(roster, employee, prevDate);
-      if (prev?.shift === 'night') { blockAssignment = prev; break; }
-      else if (prev && prev.shift !== 'off') break;
-    }
-    if (!blockAssignment) {
-      for (let i = 1; i <= 7; i++) {
-        const nextDate = offsetDate(selectedDate, i);
-        const next = getAssignment(roster, employee, nextDate);
-        if (next?.shift === 'night') { blockAssignment = next; break; }
-        else if (next && next.shift !== 'off') break;
-      }
+  if (current && current.shift === 'night') {
+    inNightBlock = true;
+  } else if (current && current.shift === 'off') {
+    for (let i = 1; i <= 2; i++) {
+      const p = getAssignment(roster, employee, offsetDate(selectedDate, -i));
+      if (p && p.shift === 'night') { inNightBlock = true; break; }
+      const n = getAssignment(roster, employee, offsetDate(selectedDate, i));
+      if (n && n.shift === 'night') { inNightBlock = true; break; }
     }
   }
 
-  if (!blockAssignment || blockAssignment.shift !== 'night') {
+  if (!inNightBlock) {
     const dt = new Date(selectedDate + 'T00:00:00');
     return { rangeFrom: dt, rangeTo: dt, totalNights: 0, completedNights: 0, remainingNights: 0 };
   }
 
-  const blockStart = blockAssignment.effectiveFrom || selectedDate;
-  const blockEnd = blockAssignment.effectiveTo || selectedDate;
+  const assignments: ShiftAssignment[] = [];
+  for (let i = -45; i <= 45; i++) {
+    const d = offsetDate(selectedDate, i);
+    const a = getAssignment(roster, employee, d);
+    if (a && (a.shift === 'night' || a.shift === 'off')) {
+      assignments.push(a);
+    }
+  }
 
-  let completedNights = 0, remainingNights = 0, cur = blockStart;
-  while (cur <= blockEnd) {
+  let minStartStr = selectedDate;
+  let maxEndStr = selectedDate;
+  let changed = true;
+
+  while (changed) {
+    changed = false;
+    for (const a of assignments) {
+      const aStart = a.effectiveFrom || selectedDate;
+      const aEnd = a.effectiveTo || selectedDate;
+      if (aStart <= maxEndStr && aEnd >= minStartStr) {
+        if (aStart < minStartStr) { minStartStr = aStart; changed = true; }
+        if (aEnd > maxEndStr) { maxEndStr = aEnd; changed = true; }
+      }
+    }
+  }
+
+  let completedNights = 0, remainingNights = 0;
+  let cur = minStartStr;
+  while (cur <= maxEndStr) {
     const s = getAssignment(roster, employee, cur)?.shift;
     if (s === 'night' && !isOnLeave(roster, employee, cur)) {
       if (cur <= selectedDate) completedNights++;
@@ -319,8 +331,8 @@ export function getNightShiftProgress(
   }
 
   return {
-    rangeFrom: new Date(blockStart + 'T00:00:00'),
-    rangeTo:   new Date(blockEnd   + 'T00:00:00'),
+    rangeFrom: new Date(minStartStr + 'T00:00:00'),
+    rangeTo:   new Date(maxEndStr   + 'T00:00:00'),
     totalNights: completedNights + remainingNights,
     completedNights, remainingNights,
   };
