@@ -293,10 +293,7 @@ export function getWeekdayDatesInMonth(year: number, month: number, weekday: num
   return dates;
 }
 
-// ✅ FIXED: Counts night shifts in the current month only.
-// Completed = nights worked from 1st of month up to (but NOT including) today.
-// Remaining = nights scheduled from today to end of month.
-// Off days are excluded (they have shift='off', not 'night').
+// ✅ FIXED: Excludes weekly off days from night shift counting!
 export function getNightShiftProgress(
   roster: RosterData, employee: Employee, selectedDate: string = todayKey(),
 ) {
@@ -309,8 +306,18 @@ export function getNightShiftProgress(
   for (let d = 1; d <= daysInMonth; d++) {
     const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
     const assignment = getAssignment(roster, employee, dateStr);
+    
+    // Not assigned to night shift -> skip
     if (!assignment || assignment.shift !== 'night') continue;
+    
+    // On leave -> skip
     if (isOnLeave(roster, employee, dateStr)) continue;
+
+    // Automatically exclude their weekly off day!
+    const dDate = new Date(year, month - 1, d);
+    if (employee.weeklyOffDay !== undefined && dDate.getDay() === employee.weeklyOffDay) {
+      continue;
+    }
 
     if (dateStr < selectedDate) {
       completed++;
