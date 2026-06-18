@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
-import { getEmployees, getRoster, saveRoster, SHIFT_INFO, todayKey, formatDate, get15Days, getNightShiftProgress, invalidateCache, getAssignment } from '@/lib/store';
+import { getEmployees, getRoster, saveRoster, saveEmployees, SHIFT_INFO, todayKey, formatDate, get15Days, getNightShiftProgress, invalidateCache, getAssignment } from '@/lib/store';
 import { Employee, RosterData, ShiftType } from '@/types';
 import { useAuth } from '@/lib/auth';
 
@@ -68,10 +68,12 @@ export default function DashboardPage() {
   }, []);
 
   function getShiftEmployees(shift: ShiftType, date: string = today): Employee[] {
-    return (roster[date] ?? [])
+    const shiftEmpIds = (roster[date] ?? [])
       .filter(a => a.shift === shift)
-      .map(a => empMap[a.employeeId])
-      .filter(Boolean) as Employee[];
+      .map(a => a.employeeId);
+    
+    // Return employees strictly in their global priority order
+    return employees.filter(e => shiftEmpIds.includes(e.id) || shiftEmpIds.includes(e.employeeId));
   }
 
   function prevDateKeyN(date: string, n: number): string {
@@ -81,35 +83,30 @@ export default function DashboardPage() {
   }
 
   function moveEmployee(shift: ShiftType, date: string, empId: string, direction: 'up' | 'down') {
-    const dayAssignments = [...(roster[date] ?? [])];
-    const index = dayAssignments.findIndex(a => a.shift === shift && (a.employeeId === empId || a.employeeId === empMap[empId]?.employeeId));
-    if (index === -1) return;
+    const shiftEmployees = getShiftEmployees(shift, date);
+    const shiftIndex = shiftEmployees.findIndex(e => e.id === empId);
+    if (shiftIndex === -1) return;
 
-    let swapIndex = -1;
-    if (direction === 'up') {
-      for (let i = index - 1; i >= 0; i--) {
-        if (dayAssignments[i].shift === shift) {
-          swapIndex = i;
-          break;
-        }
-      }
-    } else {
-      for (let i = index + 1; i < dayAssignments.length; i++) {
-        if (dayAssignments[i].shift === shift) {
-          swapIndex = i;
-          break;
-        }
-      }
+    let swapEmpId: string | null = null;
+    if (direction === 'up' && shiftIndex > 0) {
+      swapEmpId = shiftEmployees[shiftIndex - 1].id;
+    } else if (direction === 'down' && shiftIndex < shiftEmployees.length - 1) {
+      swapEmpId = shiftEmployees[shiftIndex + 1].id;
     }
 
-    if (swapIndex !== -1) {
-      const temp = dayAssignments[index];
-      dayAssignments[index] = dayAssignments[swapIndex];
-      dayAssignments[swapIndex] = temp;
+    if (swapEmpId) {
+      const newEmployees = [...employees];
+      const idx1 = newEmployees.findIndex(e => e.id === empId);
+      const idx2 = newEmployees.findIndex(e => e.id === swapEmpId!);
 
-      const newRoster = { ...roster, [date]: dayAssignments };
-      setRoster(newRoster);
-      saveRoster(newRoster);
+      if (idx1 !== -1 && idx2 !== -1) {
+        const temp = newEmployees[idx1];
+        newEmployees[idx1] = newEmployees[idx2];
+        newEmployees[idx2] = temp;
+
+        setEmployees(newEmployees);
+        saveEmployees(newEmployees); // Persists global order to backend
+      }
     }
   }
 
