@@ -230,6 +230,21 @@ export function isOnLeave(roster: RosterData, employee: Employee, dateStr: strin
   return !!getLeaveOnDate(roster, employee, dateStr);
 }
 
+// ✅ Restored the missing getActiveLeave function!
+export function getActiveLeave(roster: RosterData, employee: Employee): LeaveRecord | null {
+  const today = todayKey();
+  for (let i = -3; i <= 31; i++) {
+    const dt = new Date(new Date(today + 'T00:00:00').getTime() + i * 86400000);
+    const dateStr = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+    const a = (roster[dateStr] ?? []).find(x => (x.employeeId === employee.id || x.employeeId === employee.employeeId) && x.reason?.startsWith('LEAVE|'));
+    if (a) {
+      const parts = a.reason!.split('|');
+      if (parts[2] >= today) return { employeeId: employee.id, fromDate: parts[1], toDate: parts[2], reason: parts[3] || undefined };
+    }
+  }
+  return null;
+}
+
 export function getEffectiveDate(inputDate?: Date): Date {
   const date = inputDate || new Date();
   const utc = date.getTime() + (date.getTimezoneOffset() * 60000);
