@@ -230,13 +230,16 @@ export default function DashboardPage() {
     const info = SHIFT_INFO[shift];
     return (
       <div className="card overflow-visible">
-        <div className={`bg-gradient-to-r ${shiftColors[shift]} p-4 text-white rounded-t-2xl`}>
+        {/* --- ENLARGED TABLET HEADERS --- */}
+        <div className={`bg-gradient-to-r ${shiftColors[shift]} p-5 text-white rounded-t-2xl`}>
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-sm font-medium opacity-90">{shiftIcons[shift]} {info.label} Shift</div>
-              <div className="text-xs opacity-75 mt-0.5">{info.time}</div>
+              <div className="text-xl font-bold opacity-95 tracking-wide flex items-center gap-2">
+                <span className="text-2xl">{shiftIcons[shift]}</span> {info.label} Shift
+              </div>
+              <div className="text-sm opacity-80 mt-1 font-medium">{info.time}</div>
             </div>
-            <div className="text-3xl font-bold">{employees.length}</div>
+            <div className="text-5xl font-black opacity-95">{employees.length}</div>
           </div>
         </div>
         <div className="p-4 space-y-1">
