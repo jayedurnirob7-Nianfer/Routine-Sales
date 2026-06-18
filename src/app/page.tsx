@@ -180,7 +180,7 @@ export default function DashboardPage() {
     return (
       <div
         className="absolute left-0 top-full mt-1 z-30 w-56 card p-3 shadow-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900"
-        onClick={e => e.stopPropagation()}>
+        onClick={e => { e.stopPropagation(); e.nativeEvent.stopImmediatePropagation(); }}>
         <div className="flex items-center justify-between mb-1">
           <div className="text-xs font-semibold">{employee.name}</div>
           <button className="text-gray-400 hover:text-gray-600 text-xs" onClick={() => setPopoverTarget(null)}>✕</button>
@@ -222,7 +222,7 @@ export default function DashboardPage() {
     return (
       <div
         className={`relative flex items-center gap-2 cursor-pointer rounded-lg px-1 py-0.5 ${muted ? '' : 'hover:bg-gray-50 dark:hover:bg-gray-800/40 -mx-1'}`}
-        onClick={(e) => { e.stopPropagation(); togglePopover(emp.id, date, shift); }}>
+        onClick={(e) => { e.stopPropagation(); e.nativeEvent.stopImmediatePropagation(); togglePopover(emp.id, date, shift); }}>
         <div className={`w-7 h-7 rounded-full shrink-0 overflow-hidden shadow-sm border border-gray-200/50 dark:border-gray-700/50
           ${muted ? 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300'}`}>
           <Avatar emp={emp} className="w-full h-full text-xs" />
