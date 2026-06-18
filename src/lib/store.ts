@@ -316,6 +316,16 @@ export function getNightShiftProgress(
   const [year, month] = selectedDate.split('-').map(Number);
   const daysInMonth = new Date(year, month, 0).getDate();
 
+  const now = new Date();
+  const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+  const bdtDate = new Date(utc + (3600000 * 6));
+  const bdtHour = bdtDate.getHours();
+  const bdtMinute = bdtDate.getMinutes();
+
+  // The shift is considered started if it's past 10:30 PM or before 7:00 AM
+  const isCurrentNightShiftStarted = (bdtHour === 22 && bdtMinute >= 30) || (bdtHour > 22) || (bdtHour < 7);
+  const actualToday = todayKey(); // This represents the 'roster day' we are currently in
+
   let completed = 0;
   let remaining = 0;
 
@@ -335,7 +345,9 @@ export function getNightShiftProgress(
       continue;
     }
 
-    if (dateStr < selectedDate) {
+    if (dateStr < actualToday) {
+      completed++;
+    } else if (dateStr === actualToday && isCurrentNightShiftStarted) {
       completed++;
     } else {
       remaining++;
