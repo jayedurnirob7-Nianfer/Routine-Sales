@@ -128,7 +128,7 @@ export default function RosterPage() {
                       <td key={date} className={`px-2 py-2 text-center ${isToday ? 'bg-teal-50/50 dark:bg-teal-900/10' : ''} ${isPast ? 'opacity-50' : ''}`}>
                         {assignment && matchesFilter ? (
                           <button disabled={!isAdmin || isPast} onClick={() => isAdmin && !isPast && setAssignTarget({ emp, date })} className="w-full">
-                            <ShiftBadge shift={assignment.shift} />
+                            <ShiftBadge shift={assignment.shift} isLeave={assignment.reason?.startsWith('LEAVE|')} />
                           </button>
                         ) : !assignment && filterShift === 'all' ? (
                           isAdmin && !isPast ? (
