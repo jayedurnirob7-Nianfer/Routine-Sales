@@ -6,6 +6,13 @@ import { useAuth } from '@/lib/auth';
 import ShiftBadge from '@/components/shared/ShiftBadge';
 import AssignShiftModal from '@/components/shared/AssignShiftModal';
 
+function Avatar({ emp, className = '' }: { emp: Employee, className?: string }) {
+  if (emp.profileImage) {
+    return <img src={emp.profileImage} alt={emp.name} className={`object-cover ${className}`} />;
+  }
+  return <div className={`flex items-center justify-center font-bold ${className}`}>{emp.name.charAt(0)}</div>;
+}
+
 export default function EmployeesPage() {
   const { isAdmin } = useAuth();
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -19,7 +26,8 @@ export default function EmployeesPage() {
   const [editing, setEditing]     = useState<Employee | null>(null);
   const [saving, setSaving]       = useState(false);
 
-  const blank = () => ({ name: '', employeeId: '', role: '', defaultShift: 'morning' as ShiftType });
+  // ✅ New Profile Image field added to the form
+  const blank = () => ({ name: '', employeeId: '', role: '', defaultShift: 'morning' as ShiftType, profileImage: '' });
   const [form, setForm] = useState(blank());
 
   const [leaveModal, setLeaveModal] = useState<{ emp: Employee } | null>(null);
@@ -48,7 +56,7 @@ export default function EmployeesPage() {
 
   function openEdit(emp: Employee) {
     setEditing(emp);
-    setForm({ name: emp.name, employeeId: emp.employeeId, role: emp.role, defaultShift: emp.defaultShift || 'morning' });
+    setForm({ name: emp.name, employeeId: emp.employeeId, role: emp.role, defaultShift: emp.defaultShift || 'morning', profileImage: emp.profileImage || '' });
     setIsAdding(true);
   }
 
@@ -207,6 +215,11 @@ export default function EmployeesPage() {
               ))}
             </select>
           </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Profile Image URL (Optional)</label>
+            <input className="input" placeholder="https://imgur.com/... or Google Drive link" value={form.profileImage} onChange={e => setForm({ ...form, profileImage: e.target.value })} />
+            <p className="text-xs text-gray-400 mt-1">Paste a link to an image or GIF from ImgBB, Imgur, or Google Drive.</p>
+          </div>
           <div className="flex gap-2 pt-4">
             <button className="btn-primary flex-1" onClick={save} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
             <button className="btn-ghost flex-1 border border-gray-200 dark:border-gray-700" onClick={() => { setIsAdding(false); setEditing(null); }} disabled={saving}>Cancel</button>
@@ -220,15 +233,16 @@ export default function EmployeesPage() {
     <div className="space-y-6 flex flex-col pt-2 pb-6">
       <div className="card p-6 flex flex-col sm:flex-row sm:items-start justify-between gap-4 bg-gradient-to-br from-white to-gray-50 dark:from-gray-900 dark:to-gray-800 border-t-4 border-t-teal-500 shadow-sm">
         <div className="flex items-center gap-4">
-          <div className="w-16 h-16 rounded-full bg-teal-100 dark:bg-teal-900/40 flex items-center justify-center text-teal-600 text-2xl font-bold border-2 border-white dark:border-gray-800 shadow-md">
-            {selected.name.charAt(0)}
+          {/* ✅ Avatar added here */}
+          <div className="w-16 h-16 rounded-full bg-teal-100 dark:bg-teal-900/40 flex items-center justify-center text-teal-600 text-2xl font-bold border-2 border-white dark:border-gray-800 shadow-md overflow-hidden shrink-0">
+             <Avatar emp={selected} className="w-full h-full" />
           </div>
           <div>
             <h2 className="text-2xl font-bold tracking-tight">{selected.name}</h2>
             <div className="text-gray-500 mt-1 flex items-center gap-2">
               <span className="bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded text-xs font-medium">ID: {selected.employeeId}</span>
               <span>·</span>
-              <span className="text-sm">{selected.role}</span>
+              <span className="text-sm">{selected.role.split('|IMG:')[0]}</span>
             </div>
           </div>
         </div>
@@ -273,7 +287,6 @@ export default function EmployeesPage() {
           })()}
         </div>
 
-        {/* --- NIGHT SHIFT TRACKER --- */}
         <div className="card p-6 border border-gray-100 dark:border-gray-800 shadow-sm flex flex-col h-full">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2"><span className="text-lg">🌙</span> Night Shift Tracker</h3>
@@ -327,7 +340,6 @@ export default function EmployeesPage() {
                 <div className="text-sm font-bold text-gray-900 dark:text-gray-100 mb-2">
                   {new Date(date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                 </div>
-                {/* ✅ FIXED: Leave will now show as Leave, not Off Day */}
                 {assignment ? <ShiftBadge shift={assignment.shift} isLeave={assignment.reason?.startsWith('LEAVE|')} /> : <div className="text-xs text-gray-400 italic">Not assigned</div>}
               </div>
             );
@@ -354,14 +366,19 @@ export default function EmployeesPage() {
           {filtered.map(emp => (
             <div key={emp.id} className="space-y-2 mb-1">
               <button onClick={() => setSelected(selected?.id === emp.id ? null : emp)} className={`w-full text-left px-4 py-3 rounded-xl transition-all flex items-center justify-between ${selected?.id === emp.id ? 'bg-teal-50 dark:bg-teal-900/30 ring-1 ring-teal-500/50' : 'hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
-                <div>
-                  <div className="font-medium text-sm">{emp.name}</div>
-                  <div className="text-xs text-gray-500 mt-0.5">{emp.employeeId} · {emp.role}</div>
+                {/* ✅ Avatar added here */}
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-gray-500 font-bold overflow-hidden shrink-0 border border-gray-200 dark:border-gray-700">
+                    <Avatar emp={emp} className="w-full h-full text-[10px]" />
+                  </div>
+                  <div>
+                    <div className="font-medium text-sm">{emp.name}</div>
+                    <div className="text-xs text-gray-500 mt-0.5">{emp.employeeId} · {emp.role.split('|IMG:')[0]}</div>
+                  </div>
                 </div>
                 <div className={`text-gray-400 text-lg transition-transform duration-200 ${selected?.id === emp.id ? 'rotate-90 text-teal-500' : ''}`}>›</div>
               </button>
               
-              {/* MOBILE ACCORDION VIEW */}
               {selected?.id === emp.id && (
                 <div className="md:hidden px-1 animate-in slide-in-from-top-2 fade-in duration-200">
                   {detailsPanel}
@@ -372,7 +389,6 @@ export default function EmployeesPage() {
         </div>
       </div>
 
-      {/* Right Details - DESKTOP ONLY */}
       <div className="hidden md:flex flex-1 min-w-0 flex-col overflow-auto pr-2">
         {selected ? detailsPanel : (
           <div className="h-full flex flex-col items-center justify-center text-gray-400 card border border-dashed border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/50">
