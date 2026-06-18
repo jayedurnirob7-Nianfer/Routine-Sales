@@ -42,7 +42,7 @@ export default function RosterPage() {
     days = Array.from({ length: numDays }, (_, i) => `${y}-${String(m).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}`);
   }
 
-  const activeRoster = isArchive ? (archiveRoster || {}) : roster;
+  const activeRoster: RosterData = isArchive ? (archiveRoster || {}) : roster;
 
   useEffect(() => {
     if (archiveMonth === 'current') {
