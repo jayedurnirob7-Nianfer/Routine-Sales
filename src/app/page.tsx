@@ -220,7 +220,7 @@ export default function DashboardPage() {
         <div>
           <div className={`text-sm font-medium flex items-center gap-2 ${muted ? 'text-gray-500 dark:text-gray-400' : ''}`}>
              {emp.name}
-             {shift === 'night' && progress && progress.total > 0 && (
+             {shift === 'night' && date === today && progress && progress.total > 0 && (
                 <span className="text-[10px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full font-bold dark:bg-purple-900/40 dark:text-purple-300">
                    {progress.completed}/{progress.total}
                 </span>
