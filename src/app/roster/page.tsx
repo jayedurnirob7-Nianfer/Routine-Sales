@@ -67,11 +67,11 @@ export default function RosterPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold">Roster</h1>
-        <div className="flex flex-wrap gap-2">
-          <input className="input w-44" placeholder="Search employee…" value={search} onChange={e => setSearch(e.target.value)} />
-          <div className="flex gap-1">
+      <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+        <h1 className="text-2xl font-bold w-full md:w-auto text-center md:text-left shrink-0">Roster</h1>
+        <div className="flex flex-wrap items-center justify-center gap-2 flex-1 w-full">
+          <input className="input w-full max-w-xs md:w-44" placeholder="Search employee…" value={search} onChange={e => setSearch(e.target.value)} />
+          <div className="flex flex-wrap justify-center gap-1">
             {(['all', ...SHIFTS] as const).map(s => {
               const info = s !== 'all' ? SHIFT_INFO[s] : null;
               return (
@@ -84,15 +84,16 @@ export default function RosterPage() {
               );
             })}
           </div>
-          <button className="btn-ghost text-xs border border-gray-200 dark:border-gray-700" onClick={() => load(true)} title="Refresh">↻ Refresh</button>
+          <button className="btn-ghost text-xs border border-gray-200 dark:border-gray-700 mt-2 sm:mt-0" onClick={() => load(true)} title="Refresh">↻ Refresh</button>
         </div>
+        <div className="hidden md:block w-[100px] shrink-0"></div>
       </div>
 
       <div className="card overflow-auto max-h-[70vh]">
         <table className="min-w-full text-xs">
           <thead className="sticky top-0 z-20">
             <tr className="bg-gray-50 dark:bg-gray-800">
-              <th className="sticky left-0 top-0 z-30 bg-gray-50 dark:bg-gray-800 px-4 py-3 text-left font-semibold text-gray-500 uppercase tracking-wide min-w-[160px]">Employee</th>
+              <th className="sticky left-0 top-0 z-30 bg-gray-50 dark:bg-gray-800 px-4 py-3 text-left font-semibold text-gray-500 uppercase tracking-wide min-w-[140px] md:min-w-[160px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] dark:shadow-none border-r border-gray-200 dark:border-gray-700">Employee</th>
               {days.map(date => {
                 const isToday = date === todayKey();
                 const isPast  = date < todayKey();
@@ -114,7 +115,7 @@ export default function RosterPage() {
               }
               return (
                 <tr key={emp.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors">
-                  <td className="sticky left-0 z-10 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800/40 px-4 py-2.5 border-r border-gray-100 dark:border-gray-800">
+                  <td className="sticky left-0 z-10 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800/40 px-4 py-2.5 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] dark:shadow-none border-r border-gray-200 dark:border-gray-700">
                     <div className="font-medium text-sm">{emp.name}</div>
                     <div className="text-gray-400">{emp.employeeId} · {emp.role}</div>
                   </td>
