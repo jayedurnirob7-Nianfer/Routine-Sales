@@ -48,16 +48,27 @@ function toISODate(dateStr: string): string {
   return dateStr;
 }
 
+// ✅ Magically decodes the image URL from the role column!
 function toEmployee(e: Record<string, unknown>): Employee {
+  let role = String(e.role ?? '');
+  let profileImage: string | undefined = undefined;
+  
+  if (role.includes('|IMG:')) {
+    const parts = role.split('|IMG:');
+    role = parts[0];
+    profileImage = parts[1];
+  }
+
   return {
     id:           String(e.id           ?? ''),
     name:         String(e.name         ?? ''),
     employeeId:   String(e.employeeId   ?? ''),
-    role:         String(e.role         ?? ''),
+    role:         role,
     active:       true,
     createdAt:    toISODate(String(e.createdAt ?? '')),
     weeklyOffDay: typeof e.weeklyOffDay === 'number' ? e.weeklyOffDay : (e.weeklyOffDay ? parseInt(String(e.weeklyOffDay), 10) : undefined),
     defaultShift: (e.defaultShift as ShiftType) || 'morning',
+    profileImage: profileImage,
   };
 }
 
@@ -159,10 +170,16 @@ export async function getAdminCreds(): Promise<AdminCredentials> {
   try { return (await getAll()).auth; } catch { return {}; }
 }
 
+// ✅ Magically encodes the image URL into the role column before saving!
 export async function saveEmployees(employees: Employee[]): Promise<void> {
-  await apiPost('saveEmployees', { employees });
+  const payload = employees.map(e => ({
+    ...e,
+    role: e.profileImage ? `${e.role}|IMG:${e.profileImage}` : e.role,
+  }));
+  await apiPost('saveEmployees', { employees: payload });
   if (memCache) { memCache = { ...memCache, employees }; lsSet(LS_KEY, memCache); }
 }
+
 export async function saveRoster(roster: RosterData): Promise<void> {
   await apiPost('saveRoster', { roster });
   if (memCache) { memCache = { ...memCache, roster }; lsSet(LS_KEY, memCache); }
@@ -293,7 +310,6 @@ export function getWeekdayDatesInMonth(year: number, month: number, weekday: num
   return dates;
 }
 
-// ✅ FIXED: Excludes weekly off days from night shift counting!
 export function getNightShiftProgress(
   roster: RosterData, employee: Employee, selectedDate: string = todayKey(),
 ) {
@@ -322,18 +338,11 @@ export function getNightShiftProgress(
     if (dateStr < selectedDate) {
       completed++;
     } else {
-      // today and future days count as remaining
       remaining++;
     }
   }
 
   const total = completed + remaining;
 
-  return {
-    year,
-    month,
-    completed,
-    remaining,
-    total,
-  };
+  return { year, month, completed, remaining, total };
 }
