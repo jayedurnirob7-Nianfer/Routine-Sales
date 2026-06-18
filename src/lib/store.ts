@@ -166,7 +166,7 @@ export async function getRoster(): Promise<RosterData> { return (await getAll())
 export async function getArchiveRoster(year: number, month: number): Promise<RosterData> {
   const res = await fetch(`${API_URL}?action=getArchive&year=${year}&month=${month}`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const json = await res.json();
+  const json = await res.json() as any;
   if (json.status !== 'ok') throw new Error(json.message || 'API error');
   return toRoster(json.data.roster as Record<string, unknown[]>);
 }
