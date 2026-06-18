@@ -327,7 +327,8 @@ export default function EmployeesPage() {
                 <div className="text-sm font-bold text-gray-900 dark:text-gray-100 mb-2">
                   {new Date(date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                 </div>
-                {assignment ? <ShiftBadge shift={assignment.shift} /> : <div className="text-xs text-gray-400 italic">Not assigned</div>}
+                {/* ✅ FIXED: Leave will now show as Leave, not Off Day */}
+                {assignment ? <ShiftBadge shift={assignment.shift} isLeave={assignment.reason?.startsWith('LEAVE|')} /> : <div className="text-xs text-gray-400 italic">Not assigned</div>}
               </div>
             );
           })}
