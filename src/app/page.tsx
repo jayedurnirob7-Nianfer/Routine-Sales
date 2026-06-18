@@ -57,6 +57,14 @@ export default function DashboardPage() {
 
   const empMap = Object.fromEntries(employees.map(e => [e.id, e]));
 
+  useEffect(() => {
+    function handleClickOutside() {
+      setPopoverTarget(null);
+    }
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, []);
+
   function getShiftEmployees(shift: ShiftType, date: string = today): Employee[] {
     return (roster[date] ?? [])
       .filter(a => a.shift === shift)
@@ -70,7 +78,7 @@ export default function DashboardPage() {
     return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
   }
 
-  // ✅ Intelligently routes Off days by looking up to 7 days in the past (Fixes Nahid's issue!)
+  // ✅ Intelligently routes Off days by looking up to 7 days in the past
   function getOffEmployeesByPrevShift(date: string) {
     const offToday = getShiftEmployees('off', date);
     const grouped: Record<ShiftType, Employee[]> = { morning: [], evening: [], night: [], off: [] };
@@ -190,10 +198,12 @@ export default function DashboardPage() {
             <div className="text-xl font-bold text-gray-400">{progress.total}</div>
             <div className="text-[10px] text-gray-400">Total</div>
           </div>
-          <div className="ml-auto text-center">
-            <div className="text-xl font-bold text-amber-500">{progress.remaining}</div>
-            <div className="text-[10px] text-gray-400">Left</div>
-          </div>
+          {progress.remaining > 0 && (
+            <div className="ml-auto text-center">
+              <div className="text-xl font-bold text-amber-500">{progress.remaining}</div>
+              <div className="text-[10px] text-gray-400">Left</div>
+            </div>
+          )}
         </div>
         {progress.total > 0 && (
           <div className="w-full h-1.5 rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden mt-2">
@@ -212,7 +222,7 @@ export default function DashboardPage() {
     return (
       <div
         className={`relative flex items-center gap-2 cursor-pointer rounded-lg px-1 py-0.5 ${muted ? '' : 'hover:bg-gray-50 dark:hover:bg-gray-800/40 -mx-1'}`}
-        onClick={() => togglePopover(emp.id, date, shift)}>
+        onClick={(e) => { e.stopPropagation(); togglePopover(emp.id, date, shift); }}>
         <div className={`w-7 h-7 rounded-full shrink-0 overflow-hidden shadow-sm border border-gray-200/50 dark:border-gray-700/50
           ${muted ? 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300'}`}>
           <Avatar emp={emp} className="w-full h-full text-xs" />
@@ -257,9 +267,10 @@ export default function DashboardPage() {
 
           {offEmployees.length > 0 && (
             <div className="mt-auto pt-4 border-t border-gray-100 dark:border-gray-800 space-y-2">
-              <div className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold mb-2">🛌 Off Today</div>
+              <div className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold mb-2">
+                {date === today ? '🛌 Off Today' : '🛌 Off Day'}
+              </div>
               {offEmployees.map(emp => (
-                // ✅ NEW BEAUTIFUL OFF-DAY STYLING
                 <div key={emp.id} className="bg-gray-50/80 dark:bg-gray-800/40 p-1.5 rounded-lg border border-dashed border-gray-200 dark:border-gray-700/60 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
                   <EmployeeRow emp={emp} date={date} shift={shift} muted />
                 </div>
