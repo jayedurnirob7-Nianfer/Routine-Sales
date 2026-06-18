@@ -1,30 +1,35 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
-import { getEmployees, saveEmployees, getRoster, saveRoster, getActiveLeave, SHIFT_INFO, todayKey, invalidateCache, getNightShiftProgress, getAssignment } from '@/lib/store';
+import { getEmployees, getRoster, SHIFT_INFO, todayKey, formatDate, get15Days, getNightShiftProgress, invalidateCache } from '@/lib/store';
 import { Employee, RosterData, ShiftType } from '@/types';
-import { useAuth } from '@/lib/auth';
-import ShiftBadge from '@/components/shared/ShiftBadge';
-import AssignShiftModal from '@/components/shared/AssignShiftModal';
 
-export default function EmployeesPage() {
-  const { isAdmin } = useAuth();
+const TODAY_SHIFTS: ShiftType[] = ['morning', 'evening', 'night'];
+
+const shiftColors: Record<string, string> = {
+  morning: 'from-amber-400 to-orange-400',
+  evening: 'from-blue-400 to-cyan-400',
+  night:   'from-purple-500 to-indigo-500',
+  off:     'from-gray-300 to-gray-400',
+};
+const shiftIcons: Record<string, string> = {
+  morning: '🌅', evening: '🌆', night: '🌙', off: '🛌',
+};
+
+// Unique key for identifying a specific popover location
+interface PopoverTarget {
+  empId: string;
+  date: string;
+  shift: ShiftType;
+}
+
+export default function DashboardPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [roster, setRoster]       = useState<RosterData>({});
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState<string | null>(null);
-
-  const [search, setSearch]       = useState('');
-  const [selected, setSelected]   = useState<Employee | null>(null);
-  const [isAdding, setIsAdding]   = useState(false);
-  const [editing, setEditing]     = useState<Employee | null>(null);
-  const [saving, setSaving]       = useState(false);
-
-  const blank = () => ({ name: '', employeeId: '', role: '', defaultShift: 'morning' as ShiftType });
-  const [form, setForm] = useState(blank());
-
-  const [leaveModal, setLeaveModal] = useState<{ emp: Employee } | null>(null);
-  const [leaveForm, setLeaveForm]   = useState({ fromDate: todayKey(), toDate: todayKey(), reason: '' });
-  const [assignTarget, setAssignTarget] = useState<{ emp: Employee; date: string } | null>(null);
+  // Bug 1 fix: store a composite key, not just the employee
+  const [popoverTarget, setPopoverTarget] = useState<PopoverTarget | null>(null);
+  const today = todayKey();
 
   const load = useCallback(async (forceRefresh = false) => {
     setLoading(true);
@@ -44,131 +49,60 @@ export default function EmployeesPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  const filtered = employees.filter(e => search === '' || e.name.toLowerCase().includes(search.toLowerCase()) || e.employeeId.toLowerCase().includes(search.toLowerCase()));
+  const empMap = Object.fromEntries(employees.map(e => [e.id, e]));
 
-  function openEdit(emp: Employee) {
-    setEditing(emp);
-    setForm({ name: emp.name, employeeId: emp.employeeId, role: emp.role, defaultShift: emp.defaultShift || 'morning' });
-    setIsAdding(true);
+  function getShiftEmployees(shift: ShiftType, date: string = today): Employee[] {
+    return (roster[date] ?? [])
+      .filter(a => a.shift === shift)
+      .map(a => empMap[a.employeeId])
+      .filter(Boolean) as Employee[];
   }
 
-  async function save() {
-    if (!form.name || !form.employeeId || !form.role) return alert('Fill required fields');
-    setSaving(true);
-    try {
-      let updated: Employee[];
-      if (editing) {
-        updated = employees.map(e => e.id === editing.id ? { ...editing, ...form } : e);
+  function prevDateKey(date: string): string {
+    const [y, m, d] = date.split('-').map(Number);
+    const dt = new Date(y, m - 1, d - 1);
+    return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+  }
+
+  function getOffEmployeesByPrevShift(date: string): Record<ShiftType, Employee[]> {
+    const offToday = getShiftEmployees('off', date);
+    const grouped: Record<ShiftType, Employee[]> = { morning: [], evening: [], night: [], off: [] };
+    const yesterday = prevDateKey(date);
+
+    offToday.forEach(emp => {
+      const yesterdayAssignment = (roster[yesterday] ?? []).find(a => a.employeeId === emp.id);
+      if (yesterdayAssignment && TODAY_SHIFTS.includes(yesterdayAssignment.shift)) {
+        grouped[yesterdayAssignment.shift].push(emp);
       } else {
-        updated = [...employees, { id: Date.now().toString(), createdAt: new Date().toISOString().split('T')[0], active: true, ...form }];
+        grouped.off.push(emp);
       }
-      await saveEmployees(updated);
-      setEmployees(updated);
-      if (editing && selected?.id === editing.id) {
-        setSelected(updated.find(e => e.id === editing.id) || null);
-      }
-      setIsAdding(false);
-      setEditing(null);
-    } catch (e: unknown) {
-      alert(`Save failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
-    } finally {
-      setSaving(false);
-    }
+    });
+    return grouped;
   }
 
-  async function remove(id: string) {
-    if (!confirm('Are you sure you want to completely remove this employee?')) return;
-    setSaving(true);
-    try {
-      const updated = employees.filter(e => e.id !== id);
-      await saveEmployees(updated);
-      setEmployees(updated);
-      if (selected?.id === id) setSelected(null);
-    } catch (e: unknown) {
-      alert(`Remove failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
-    } finally {
-      setSaving(false);
-    }
+  const all15Days = get15Days(today);
+
+  function getUpcomingDays() {
+    const upcomingDates = all15Days.filter(date => date !== today);
+    return upcomingDates.map(date => {
+      const offByShift = getOffEmployeesByPrevShift(date);
+      return {
+        date,
+        shifts: TODAY_SHIFTS.map(shift => ({
+          shift,
+          employees: getShiftEmployees(shift, date),
+          offEmployees: offByShift[shift],
+        })),
+        unsortedOff: offByShift.off,
+      };
+    });
   }
-
-  async function saveLeave() {
-    if (!leaveModal) return;
-    setSaving(true);
-    try {
-      let next = { ...roster };
-      const start = new Date(leaveForm.fromDate + 'T00:00:00');
-      const end = new Date(leaveForm.toDate + 'T00:00:00');
-      
-      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-        const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-        const others = (next[dateStr] ?? []).filter(a => a.employeeId !== leaveModal.emp.id && a.employeeId !== leaveModal.emp.employeeId);
-        next[dateStr] = [...others, {
-          employeeId: leaveModal.emp.id,
-          shift: 'off',
-          effectiveFrom: dateStr,
-          effectiveTo: dateStr,
-          reason: `LEAVE|${leaveForm.fromDate}|${leaveForm.toDate}|${leaveForm.reason}`,
-          isOffDayOverride: true,
-        }];
-      }
-      await saveRoster(next);
-      setRoster(next);
-      setLeaveModal(null);
-    } catch (e: unknown) {
-      alert(`Failed to save leave: ${e instanceof Error ? e.message : 'Unknown error'}`);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function removeLeave(leave: { employeeId: string, fromDate: string, toDate: string }) {
-    if (!confirm('Cancel this leave?')) return;
-    setSaving(true);
-    try {
-      let next = { ...roster };
-      const start = new Date(leave.fromDate + 'T00:00:00');
-      const end = new Date(leave.toDate + 'T00:00:00');
-      
-      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-        const date = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-        const updatedList = (next[date] ?? []).filter(a =>
-          !( (a.employeeId === leave.employeeId || a.employeeId === selected?.employeeId) && a.reason?.startsWith('LEAVE|') )
-        );
-        next[date] = updatedList;
-      }
-      await saveRoster(next);
-      setRoster(next);
-    } catch (e: unknown) {
-      alert(`Failed to cancel leave: ${e instanceof Error ? e.message : 'Unknown error'}`);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  const currentMonthSchedule = selected ? (() => {
-    const todayStr = todayKey();
-    const [yyyy, mm] = todayStr.split('-');
-    const year = parseInt(yyyy, 10);
-    const month = parseInt(mm, 10) - 1;
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    
-    const schedule = [];
-    for (let i = 1; i <= daysInMonth; i++) {
-      const d = new Date(year, month, i);
-      const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-      const a = getAssignment(roster, selected, dateStr);
-      schedule.push({ date: dateStr, assignment: a });
-    }
-    return schedule;
-  })() : [];
-
-  const nightProgress = selected ? getNightShiftProgress(roster, selected) : null;
 
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center space-y-3">
-          <div className="animate-spin text-4xl">⏳</div>
+          <div className="animate-spin text-4xl">⟳</div>
           <p className="text-gray-400 text-sm">Loading from Google Sheets…</p>
         </div>
       </div>
@@ -188,235 +122,182 @@ export default function EmployeesPage() {
     );
   }
 
-  if (isAdding) {
+  const upcomingDays = getUpcomingDays();
+  const todayOffByShift = getOffEmployeesByPrevShift(today);
+
+  // Bug 1 fix: check popover match using composite key (empId + date + shift)
+  function isPopoverOpen(empId: string, date: string, shift: ShiftType): boolean {
+    if (!popoverTarget) return false;
+    return popoverTarget.empId === empId && popoverTarget.date === date && popoverTarget.shift === shift;
+  }
+
+  function togglePopover(empId: string, date: string, shift: ShiftType) {
+    if (isPopoverOpen(empId, date, shift)) {
+      setPopoverTarget(null);
+    } else {
+      setPopoverTarget({ empId, date, shift });
+    }
+  }
+
+  function NightProgressPopover({ employee }: { employee: Employee }) {
+    const progress = getNightShiftProgress(roster, employee, today);
     return (
-      <div className="flex justify-center">
-        <div className="card p-6 w-full max-w-md space-y-4">
-          <h2 className="font-semibold text-lg">{editing ? 'Edit Employee' : 'Add Employee'}</h2>
-          {(['name', 'employeeId', 'role'] as const).map(field => (
-            <div key={field}>
-              <label className="block text-sm font-medium mb-1">{field === 'employeeId' ? 'Employee ID' : field.charAt(0).toUpperCase() + field.slice(1)}</label>
-              <input className="input" value={form[field]} onChange={e => setForm({ ...form, [field]: e.target.value })} />
-            </div>
-          ))}
-          <div>
-            <label className="block text-sm font-medium mb-1">Default Shift</label>
-            <select className="input" value={form.defaultShift} onChange={e => setForm({ ...form, defaultShift: e.target.value as ShiftType })}>
-              {Object.keys(SHIFT_INFO).filter(k => k !== 'off').map(s => (
-                <option key={s} value={s}>{SHIFT_INFO[s as ShiftType].label}</option>
-              ))}
-            </select>
+      <div
+        className="absolute left-0 top-full mt-1 z-30 w-56 card p-3 shadow-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900"
+        onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-1">
+          <div className="text-xs font-semibold">{employee.name}</div>
+          <button className="text-gray-400 hover:text-gray-600 text-xs" onClick={() => setPopoverTarget(null)}>✕</button>
+        </div>
+        <div className="text-[10px] text-gray-400 mb-2">
+          {new Date(progress.year, progress.month - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })} · Night Shifts
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="text-center">
+            <div className="text-xl font-bold text-purple-600">{progress.completed}</div>
+            <div className="text-[10px] text-gray-400">Done</div>
           </div>
-          <div className="flex gap-2 pt-4">
-            <button className="btn-primary flex-1" onClick={save} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
-            <button className="btn-ghost flex-1 border border-gray-200 dark:border-gray-700" onClick={() => { setIsAdding(false); setEditing(null); }} disabled={saving}>Cancel</button>
+          <div className="text-gray-300">/</div>
+          <div className="text-center">
+            <div className="text-xl font-bold text-gray-400">{progress.total}</div>
+            <div className="text-[10px] text-gray-400">Total</div>
+          </div>
+          <div className="ml-auto text-center">
+            <div className="text-xl font-bold text-amber-500">{progress.remaining}</div>
+            <div className="text-[10px] text-gray-400">Left</div>
+          </div>
+        </div>
+        {progress.total > 0 && (
+          <div className="w-full h-1.5 rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden mt-2">
+            <div className="h-full bg-purple-500" style={{ width: `${(progress.completed / progress.total) * 100}%` }} />
+          </div>
+        )}
+        {progress.total === 0 && <p className="text-[10px] text-gray-400 mt-1">No night shifts this month.</p>}
+      </div>
+    );
+  }
+
+  function EmployeeRow({ emp, date, shift, muted = false }: { emp: Employee; date: string; shift: ShiftType; muted?: boolean }) {
+    const showPopover = isPopoverOpen(emp.id, date, shift);
+    return (
+      <div
+        className="relative flex items-center gap-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/40 rounded-lg -mx-1 px-1 py-0.5"
+        onClick={() => togglePopover(emp.id, date, shift)}>
+        <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0
+          ${muted ? 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300'}`}>
+          {emp.name.charAt(0)}
+        </div>
+        <div>
+          <div className={`text-sm font-medium ${muted ? 'text-gray-400' : ''}`}>{emp.name}</div>
+          <div className="text-xs text-gray-400">{emp.employeeId} · {emp.role}</div>
+        </div>
+        {showPopover && <NightProgressPopover employee={emp} />}
+      </div>
+    );
+  }
+
+  function ShiftCard({ shift, employees, offEmployees, date }: { shift: ShiftType; employees: Employee[]; offEmployees: Employee[]; date: string }) {
+    const info = SHIFT_INFO[shift];
+    return (
+      <div className="card overflow-visible">
+        <div className={`bg-gradient-to-r ${shiftColors[shift]} p-4 text-white rounded-t-2xl`}>
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-medium opacity-90">{shiftIcons[shift]} {info.label} Shift</div>
+              <div className="text-xs opacity-75 mt-0.5">{info.time}</div>
+            </div>
+            <div className="text-3xl font-bold">{employees.length}</div>
+          </div>
+        </div>
+        <div className="p-4 space-y-3">
+          {employees.length === 0 ? (
+            <p className="text-gray-400 text-sm">No one assigned</p>
+          ) : (
+            <div className="space-y-2">
+              {employees.map(emp => (
+                <EmployeeRow key={emp.id} emp={emp} date={date} shift={shift} />
+              ))}
+            </div>
+          )}
+
+          {offEmployees.length > 0 && (
+            <div className="pt-2 border-t border-gray-100 dark:border-gray-800 space-y-2">
+              <div className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">🛌 Off Today</div>
+              {offEmployees.map(emp => (
+                <EmployeeRow key={emp.id} emp={emp} date={date} shift={shift} muted />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  function UnsortedOffCard({ employees, date }: { employees: Employee[]; date: string }) {
+    if (employees.length === 0) return null;
+    return (
+      <div className="card overflow-visible border border-dashed border-gray-300 dark:border-gray-700">
+        <div className="p-3 bg-gray-50 dark:bg-gray-800/60">
+          <div className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold mb-2">
+            🛌 Off Day (no prior shift on record)
+          </div>
+          <div className="flex flex-wrap gap-3">
+            {employees.map(emp => (
+              <div key={emp.id} className="relative">
+                <EmployeeRow emp={emp} date={date} shift="off" muted />
+              </div>
+            ))}
           </div>
         </div>
       </div>
     );
   }
 
-  const detailsPanel = selected ? (
-    <div className="space-y-6 flex flex-col pt-2 pb-6">
-      <div className="card p-6 flex flex-col sm:flex-row sm:items-start justify-between gap-4 bg-gradient-to-br from-white to-gray-50 dark:from-gray-900 dark:to-gray-800 border-t-4 border-t-teal-500 shadow-sm">
-        <div className="flex items-center gap-4">
-          <div className="w-16 h-16 rounded-full bg-teal-100 dark:bg-teal-900/40 flex items-center justify-center text-teal-600 text-2xl font-bold border-2 border-white dark:border-gray-800 shadow-md">
-            {selected.name.charAt(0)}
-          </div>
-          <div>
-            <h2 className="text-2xl font-bold tracking-tight">{selected.name}</h2>
-            <div className="text-gray-500 mt-1 flex items-center gap-2">
-              <span className="bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded text-xs font-medium">ID: {selected.employeeId}</span>
-              <span>·</span>
-              <span className="text-sm">{selected.role}</span>
-            </div>
-          </div>
-        </div>
-        {isAdmin && (
-          <div className="flex gap-2">
-            <button className="btn-ghost text-xs border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm" onClick={() => openEdit(selected)}>✎ Edit</button>
-            <button className="btn-ghost text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm" onClick={() => remove(selected.id)}>🗑 Remove</button>
-          </div>
-        )}
-      </div>
-
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <div className="card p-6 border border-gray-100 dark:border-gray-800 shadow-sm">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2"><span className="text-lg">✈️</span> Leave Status</h3>
-            {isAdmin && (
-              <button className="btn-ghost text-xs text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 px-3 py-1.5 rounded-lg font-medium" onClick={() => setLeaveModal({ emp: selected })}>
-                + Register Leave
-              </button>
-            )}
-          </div>
-          {(() => {
-            const activeLeave = getActiveLeave(roster, selected);
-            if (!activeLeave) return <p className="text-gray-400 text-sm italic bg-gray-50 dark:bg-gray-800/50 p-4 rounded-xl text-center">No upcoming or active leave.</p>;
-            return (
-              <div className="bg-amber-50/50 dark:bg-amber-900/10 p-5 rounded-xl border border-amber-100 dark:border-amber-900/30">
-                <div className="font-semibold text-amber-800 dark:text-amber-400 mb-1 flex items-center gap-2">
-                  <span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span></span>
-                  Currently on Leave
-                </div>
-                <div className="text-sm text-amber-700 dark:text-amber-500/80 mb-3">
-                  {new Date(activeLeave.fromDate + 'T00:00:00').toLocaleDateString()} — {new Date(activeLeave.toDate + 'T00:00:00').toLocaleDateString()}
-                  {activeLeave.reason && ` · ${activeLeave.reason}`}
-                </div>
-                {isAdmin && (
-                  <button className="btn-primary bg-red-500 hover:bg-red-600 border-none shadow-sm text-xs px-4" onClick={() => removeLeave(activeLeave)} disabled={saving}>
-                    {saving ? 'Canceling...' : 'Cancel Leave'}
-                  </button>
-                )}
-              </div>
-            );
-          })()}
-        </div>
-
-        {/* --- PERFECTLY FIXED NIGHT SHIFT TRACKER --- */}
-        <div className="card p-6 border border-gray-100 dark:border-gray-800 shadow-sm flex flex-col h-full">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2"><span className="text-lg">🌙</span> Night Shift Tracker</h3>
-          </div>
-          {nightProgress && nightProgress.totalNights > 0 ? (
-            <div className="space-y-4">
-              <div className="flex justify-between items-end">
-                <div>
-                  <div className="text-3xl font-black text-purple-600 tracking-tight">{nightProgress.completedNights} <span className="text-lg font-medium text-gray-400 tracking-normal">/ {nightProgress.totalNights}</span></div>
-                  <div className="text-xs font-medium text-gray-500 uppercase tracking-wider mt-1">Completed Nights</div>
-                </div>
-                <div className="text-right">
-                  <div className="text-2xl font-bold text-amber-500">{nightProgress.remainingNights}</div>
-                  <div className="text-xs font-medium text-gray-500 uppercase tracking-wider mt-1">Remaining</div>
-                </div>
-              </div>
-              <div className="relative pt-1">
-                <div className="overflow-hidden h-2.5 text-xs flex rounded-full bg-purple-100 dark:bg-gray-800 inset-shadow-sm">
-                  <div style={{ width: `${(nightProgress.completedNights / nightProgress.totalNights) * 100}%` }} className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-gradient-to-r from-purple-500 to-indigo-500 rounded-full"></div>
-                </div>
-              </div>
-              <div className="text-xs text-gray-400 bg-gray-50 dark:bg-gray-800/50 p-2.5 rounded-lg text-center font-medium">
-                Block: {nightProgress.rangeFrom.toLocaleDateString()} — {nightProgress.rangeTo.toLocaleDateString()}
-              </div>
-            </div>
-          ) : (
-            <div className="flex-1 flex flex-col items-center justify-center bg-gray-50 dark:bg-gray-800/50 rounded-xl p-6 min-h-[120px]">
-              <span className="text-gray-400 text-sm font-medium italic">Not assigned</span>
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className="card p-6 border border-gray-100 dark:border-gray-800 shadow-sm mt-4">
-        <div className="flex items-center justify-between mb-6">
-          <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2">
-            <span className="text-lg">📅</span> 
-            {new Date(todayKey() + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })} Schedule
-          </h3>
-        </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-7 gap-3">
-          {currentMonthSchedule.map(({ date, assignment }) => {
-            const isToday = date === todayKey();
-            return (
-              <div key={date} className={`p-3 rounded-xl border transition-all hover:shadow-md cursor-pointer
-                ${isToday ? 'bg-teal-50 dark:bg-teal-900/10 border-teal-200 dark:border-teal-800/50 shadow-sm ring-1 ring-teal-500/20' : 'bg-white dark:bg-gray-900 border-gray-100 dark:border-gray-800 hover:border-teal-300'}`}
-                onClick={() => isAdmin && setAssignTarget({ emp: selected, date })}>
-                <div className={`text-[10px] uppercase font-bold tracking-wider mb-0.5 ${isToday ? 'text-teal-600 dark:text-teal-400' : 'text-gray-400'}`}>
-                  {new Date(date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short' })} {isToday && '(TODAY)'}
-                </div>
-                <div className="text-sm font-bold text-gray-900 dark:text-gray-100 mb-2">
-                  {new Date(date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                </div>
-                {assignment ? <ShiftBadge shift={assignment.shift} /> : <div className="text-xs text-gray-400 italic">Not assigned</div>}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  ) : null;
-
   return (
-    <div className="flex flex-col md:flex-row gap-6 h-[calc(100vh-6rem)]">
-      {/* Left List */}
-      <div className="w-full md:w-80 flex flex-col gap-4">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold">Team</h1>
-          {isAdmin && <button className="btn-primary text-xs py-1.5" onClick={() => { setForm(blank()); setIsAdding(true); }}>+ Add</button>}
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Dashboard</h1>
+          <p className="text-gray-500 text-sm mt-1">{formatDate(today)} — Today's Overview</p>
         </div>
-        <div className="flex items-center gap-2">
-          <input className="input flex-1" placeholder="Search employees..." value={search} onChange={e => setSearch(e.target.value)} />
-          <button className="btn-ghost text-xs border border-gray-200 dark:border-gray-700 px-3" onClick={() => load(true)} title="Refresh">↻</button>
-        </div>
-        <div className="card flex-1 overflow-auto p-2 space-y-1">
-          {filtered.length === 0 && <p className="text-gray-400 text-sm text-center mt-4">No employees found.</p>}
-          {filtered.map(emp => (
-            <div key={emp.id} className="space-y-2 mb-1">
-              <button onClick={() => setSelected(selected?.id === emp.id ? null : emp)} className={`w-full text-left px-4 py-3 rounded-xl transition-all flex items-center justify-between ${selected?.id === emp.id ? 'bg-teal-50 dark:bg-teal-900/30 ring-1 ring-teal-500/50' : 'hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
-                <div>
-                  <div className="font-medium text-sm">{emp.name}</div>
-                  <div className="text-xs text-gray-500 mt-0.5">{emp.employeeId} · {emp.role}</div>
-                </div>
-                <div className={`text-gray-400 text-lg transition-transform duration-200 ${selected?.id === emp.id ? 'rotate-90 text-teal-500' : ''}`}>›</div>
-              </button>
-              
-              {/* MOBILE ACCORDION VIEW */}
-              {selected?.id === emp.id && (
-                <div className="md:hidden px-1 animate-in slide-in-from-top-2 fade-in duration-200">
-                  {detailsPanel}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
+        <button
+          className="btn-ghost text-xs border border-gray-200 dark:border-gray-700"
+          onClick={() => load(true)}
+          title="Refresh from Google Sheets">
+          ↻ Refresh
+        </button>
       </div>
 
-      {/* Right Details - DESKTOP ONLY */}
-      <div className="hidden md:flex flex-1 min-w-0 flex-col overflow-auto pr-2">
-        {selected ? detailsPanel : (
-          <div className="h-full flex flex-col items-center justify-center text-gray-400 card border border-dashed border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/50">
-            <div className="text-5xl mb-4 opacity-50 grayscale">👤</div>
-            <p className="text-lg font-medium text-gray-500">Select an employee to view details</p>
-          </div>
-        )}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {TODAY_SHIFTS.map(shift => (
+          <ShiftCard
+            key={shift}
+            shift={shift}
+            employees={getShiftEmployees(shift)}
+            offEmployees={todayOffByShift[shift]}
+            date={today}
+          />
+        ))}
       </div>
+      <UnsortedOffCard employees={todayOffByShift.off} date={today} />
 
-      {leaveModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
-          <div className="card p-6 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-200">
-            <h2 className="text-xl font-bold mb-5 flex items-center gap-2">✈️ Register Leave</h2>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">From Date</label>
-                <input type="date" className="input" value={leaveForm.fromDate} onChange={e => setLeaveForm({ ...leaveForm, fromDate: e.target.value })} />
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">To Date</label>
-                <input type="date" className="input" value={leaveForm.toDate} onChange={e => setLeaveForm({ ...leaveForm, toDate: e.target.value })} />
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Reason (Optional)</label>
-                <input type="text" className="input" placeholder="e.g. Sick leave, vacation" value={leaveForm.reason} onChange={e => setLeaveForm({ ...leaveForm, reason: e.target.value })} />
-              </div>
+      <div className="space-y-8">
+        <h2 className="text-lg font-semibold">Upcoming Shifts (Next 14 Days)</h2>
+
+        {upcomingDays.map(day => (
+          <div key={day.date} className="space-y-3">
+            <h3 className="text-sm font-medium text-gray-400">
+              {new Date(day.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {day.shifts.map(({ shift, employees, offEmployees }) => (
+                <ShiftCard key={`${day.date}-${shift}`} shift={shift} employees={employees} offEmployees={offEmployees} date={day.date} />
+              ))}
             </div>
-            <div className="flex gap-3 mt-8">
-              <button className="btn-primary flex-1 shadow-sm" onClick={saveLeave} disabled={saving}>{saving ? 'Saving...' : 'Confirm'}</button>
-              <button className="btn-ghost flex-1 border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800" onClick={() => setLeaveModal(null)}>Cancel</button>
-            </div>
+            <UnsortedOffCard employees={day.unsortedOff} date={day.date} />
           </div>
-        </div>
-      )}
-
-      {assignTarget && (
-        <AssignShiftModal
-          employee={assignTarget.emp}
-          date={assignTarget.date}
-          currentShift={getAssignment(roster, assignTarget.emp, assignTarget.date)?.shift}
-          roster={roster}
-          onSave={(newRoster) => { setRoster(newRoster); }}
-          onClose={() => setAssignTarget(null)}
-        />
-      )}
+        ))}
+      </div>
     </div>
   );
 }
