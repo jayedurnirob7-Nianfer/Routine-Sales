@@ -18,6 +18,7 @@ export interface Employee {
   createdAt: string;
   weeklyOffDay?: number; 
   defaultShift?: ShiftType; 
+  profileImage?: string; // ✅ New Image field
 }
 
 export interface ShiftAssignment {
