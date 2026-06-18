@@ -163,6 +163,13 @@ async function apiPost(action: string, payload: Record<string, unknown>): Promis
 
 export async function getEmployees(): Promise<Employee[]> { return (await getAll()).employees; }
 export async function getRoster(): Promise<RosterData> { return (await getAll()).roster; }
+export async function getArchiveRoster(year: number, month: number): Promise<RosterData> {
+  const res = await fetch(`${API_URL}?action=getArchive&year=${year}&month=${month}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const json = await res.json();
+  if (json.status !== 'ok') throw new Error(json.message || 'API error');
+  return toRoster(json.data.roster as Record<string, unknown[]>);
+}
 export async function getSiteSettings(): Promise<SiteSettings> {
   try { return (await getAll()).settings; } catch { return { siteName: 'PXL', logoEmoji: '⬡' }; }
 }
