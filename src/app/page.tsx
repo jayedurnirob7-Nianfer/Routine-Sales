@@ -22,6 +22,13 @@ interface PopoverTarget {
   shift: ShiftType;
 }
 
+function Avatar({ emp, className = '' }: { emp: Employee, className?: string }) {
+  if (emp.profileImage) {
+    return <img src={emp.profileImage} alt={emp.name} className={`object-cover ${className}`} />;
+  }
+  return <div className={`flex items-center justify-center font-bold ${className}`}>{emp.name.charAt(0)}</div>;
+}
+
 export default function DashboardPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [roster, setRoster]       = useState<RosterData>({});
@@ -57,19 +64,18 @@ export default function DashboardPage() {
       .filter(Boolean) as Employee[];
   }
 
-  function prevDateKey(date: string): string {
+  function prevDateKeyN(date: string, n: number): string {
     const [y, m, d] = date.split('-').map(Number);
-    const dt = new Date(y, m - 1, d - 1);
+    const dt = new Date(y, m - 1, d - n);
     return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
   }
 
-  // ✅ Separate Leave from Off days
+  // ✅ Intelligently routes Off days by looking up to 7 days in the past (Fixes Nahid's issue!)
   function getOffEmployeesByPrevShift(date: string) {
     const offToday = getShiftEmployees('off', date);
     const grouped: Record<ShiftType, Employee[]> = { morning: [], evening: [], night: [], off: [] };
     const leave: Employee[] = [];
     const unsorted: Employee[] = [];
-    const yesterday = prevDateKey(date);
 
     offToday.forEach(emp => {
       const assignment = getAssignment(roster, emp, date);
@@ -78,9 +84,23 @@ export default function DashboardPage() {
         return;
       }
 
-      const yesterdayAssignment = getAssignment(roster, emp, yesterday);
-      if (yesterdayAssignment && TODAY_SHIFTS.includes(yesterdayAssignment.shift)) {
-        grouped[yesterdayAssignment.shift].push(emp);
+      let prevShift: ShiftType | null = null;
+      // Look back up to 7 days to find their last real working shift (skips leaves and off days!)
+      for (let i = 1; i <= 7; i++) {
+        const pastDate = prevDateKeyN(date, i);
+        const pastAssignment = getAssignment(roster, emp, pastDate);
+        if (pastAssignment && TODAY_SHIFTS.includes(pastAssignment.shift)) {
+          prevShift = pastAssignment.shift;
+          break;
+        }
+      }
+
+      if (!prevShift) {
+        prevShift = emp.defaultShift ?? 'morning';
+      }
+
+      if (TODAY_SHIFTS.includes(prevShift)) {
+        grouped[prevShift].push(emp);
       } else {
         unsorted.push(emp);
       }
@@ -191,23 +211,22 @@ export default function DashboardPage() {
 
     return (
       <div
-        className="relative flex items-center gap-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/40 rounded-lg -mx-1 px-1 py-0.5"
+        className={`relative flex items-center gap-2 cursor-pointer rounded-lg px-1 py-0.5 ${muted ? '' : 'hover:bg-gray-50 dark:hover:bg-gray-800/40 -mx-1'}`}
         onClick={() => togglePopover(emp.id, date, shift)}>
-        <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0
+        <div className={`w-7 h-7 rounded-full shrink-0 overflow-hidden shadow-sm border border-gray-200/50 dark:border-gray-700/50
           ${muted ? 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300'}`}>
-          {emp.name.charAt(0)}
+          <Avatar emp={emp} className="w-full h-full text-xs" />
         </div>
         <div>
-          <div className={`text-sm font-medium flex items-center gap-2 ${muted ? 'text-gray-400' : ''}`}>
+          <div className={`text-sm font-medium flex items-center gap-2 ${muted ? 'text-gray-500 dark:text-gray-400' : ''}`}>
              {emp.name}
-             {/* ✅ Show small badge for night shift count right in the row */}
              {shift === 'night' && progress && progress.total > 0 && (
                 <span className="text-[10px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full font-bold dark:bg-purple-900/40 dark:text-purple-300">
                    {progress.completed}/{progress.total}
                 </span>
              )}
           </div>
-          <div className="text-xs text-gray-400">{emp.employeeId} · {emp.role}</div>
+          <div className={`text-xs ${muted ? 'text-gray-400/80 dark:text-gray-500' : 'text-gray-400'}`}>{emp.employeeId} · {emp.role.split('|IMG:')[0]}</div>
         </div>
         {showPopover && <NightProgressPopover employee={emp} />}
       </div>
@@ -217,7 +236,6 @@ export default function DashboardPage() {
   function ShiftCard({ shift, employees, offEmployees, date }: { shift: ShiftType; employees: Employee[]; offEmployees: Employee[]; date: string }) {
     const info = SHIFT_INFO[shift];
     return (
-      // ✅ flex flex-col h-full pushes the bottom section perfectly to align them all
       <div className="card overflow-visible flex flex-col h-full">
         <div className={`bg-gradient-to-r ${shiftColors[shift]} p-4 text-white rounded-t-2xl shrink-0`}>
           <div className="flex items-center justify-between">
@@ -241,7 +259,10 @@ export default function DashboardPage() {
             <div className="mt-auto pt-4 border-t border-gray-100 dark:border-gray-800 space-y-2">
               <div className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold mb-2">🛌 Off Today</div>
               {offEmployees.map(emp => (
-                <EmployeeRow key={emp.id} emp={emp} date={date} shift={shift} muted />
+                // ✅ NEW BEAUTIFUL OFF-DAY STYLING
+                <div key={emp.id} className="bg-gray-50/80 dark:bg-gray-800/40 p-1.5 rounded-lg border border-dashed border-gray-200 dark:border-gray-700/60 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+                  <EmployeeRow emp={emp} date={date} shift={shift} muted />
+                </div>
               ))}
             </div>
           )}
@@ -250,7 +271,6 @@ export default function DashboardPage() {
     );
   }
 
-  // ✅ New premium styling for Off days
   function OtherOffCard({ employees, date }: { employees: Employee[]; date: string }) {
     if (employees.length === 0) return null;
     return (
@@ -263,8 +283,10 @@ export default function DashboardPage() {
           </div>
           <div className="flex flex-wrap gap-2 md:ml-4 border-l-0 md:border-l border-gray-200 dark:border-gray-700 md:pl-4">
             {employees.map(emp => (
-               <div key={emp.id} className="bg-white dark:bg-gray-900 px-3 py-1.5 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 flex items-center gap-2">
-                 <div className="w-5 h-5 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-[10px] font-bold text-gray-500">{emp.name.charAt(0)}</div>
+               <div key={emp.id} className="bg-white dark:bg-gray-900 pl-1 pr-3 py-1 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 flex items-center gap-2">
+                 <div className="w-6 h-6 rounded-full overflow-hidden shrink-0">
+                    <Avatar emp={emp} className="w-full h-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-[10px] font-bold text-gray-500" />
+                 </div>
                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{emp.name}</span>
                </div>
             ))}
@@ -274,7 +296,6 @@ export default function DashboardPage() {
     );
   }
 
-  // ✅ Dedicated Leave Component
   function LeaveCard({ employees, date }: { employees: Employee[]; date: string }) {
     if (employees.length === 0) return null;
     return (
@@ -290,8 +311,10 @@ export default function DashboardPage() {
                const assignment = getAssignment(roster, emp, date);
                const reason = assignment?.reason?.split('|')[3] || 'Leave';
                return (
-                 <div key={emp.id} className="bg-white dark:bg-gray-900 px-3 py-1.5 rounded-lg shadow-sm border border-amber-200 dark:border-amber-900/50 flex items-center gap-2">
-                   <div className="w-5 h-5 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center text-[10px] font-bold text-amber-600">{emp.name.charAt(0)}</div>
+                 <div key={emp.id} className="bg-white dark:bg-gray-900 pl-1 pr-3 py-1 rounded-lg shadow-sm border border-amber-200 dark:border-amber-900/50 flex items-center gap-2">
+                   <div className="w-7 h-7 rounded-full overflow-hidden shrink-0">
+                      <Avatar emp={emp} className="w-full h-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center text-[10px] font-bold text-amber-600" />
+                   </div>
                    <div className="flex flex-col">
                      <span className="text-sm font-medium text-gray-800 dark:text-gray-200">{emp.name}</span>
                      <span className="text-[10px] text-amber-600 dark:text-amber-500">{reason}</span>
@@ -332,7 +355,6 @@ export default function DashboardPage() {
             />
           ))}
         </div>
-        {/* ✅ Leave and Other Off are now beautifully styled horizontal bars below the grid */}
         <LeaveCard employees={todayData.leave} date={today} />
         <OtherOffCard employees={todayData.unsorted} date={today} />
       </div>
