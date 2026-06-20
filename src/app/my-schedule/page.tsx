@@ -273,10 +273,10 @@ export default function MySchedulePage() {
                   <div className="flex justify-between items-start mb-3">
                     <div className="flex items-center gap-2">
                        <span className="text-xl">
-                         {req.type === 'leave' ? '✈️' : req.type === 'off' ? '🛌' : '🔄'}
+                         {req.type === 'issue' ? '⚠️' : req.type === 'leave' ? '✈️' : req.type === 'off' ? '🛌' : '🔄'}
                        </span>
                        <div className="font-bold text-sm text-gray-900 dark:text-gray-100">
-                         {req.type === 'leave' ? `Leave Request` : req.type === 'off' ? `Off Day Request` : `Shift Switch (${SHIFT_INFO[req.requestedShift!].label})`}
+                         {req.type === 'issue' ? `Reported Issue` : req.type === 'leave' ? `Leave Request` : req.type === 'off' ? `Off Day Request` : `Shift Switch (${SHIFT_INFO[req.requestedShift!]?.label || ''})`}
                        </div>
                     </div>
                     <div>
