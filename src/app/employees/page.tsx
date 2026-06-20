@@ -3,8 +3,10 @@ import { useEffect, useState, useCallback } from 'react';
 import { getEmployees, saveEmployees, getRoster, saveRoster, getActiveLeave, SHIFT_INFO, todayKey, invalidateCache, getNightShiftProgress, getAssignment } from '@/lib/store';
 import { Employee, RosterData, ShiftType } from '@/types';
 import { useAuth } from '@/lib/auth';
+import { useRouter } from 'next/navigation';
 import ShiftBadge from '@/components/shared/ShiftBadge';
 import AssignShiftModal from '@/components/shared/AssignShiftModal';
+import { AlertDialog, ConfirmDialog, PromptDialog } from '@/components/shared/Dialogs';
 
 function Avatar({ emp, className = '' }: { emp: Employee, className?: string }) {
   if (emp.profileImage) {
@@ -14,7 +16,8 @@ function Avatar({ emp, className = '' }: { emp: Employee, className?: string }) 
 }
 
 export default function EmployeesPage() {
-  const { isAdmin } = useAuth();
+  const { isAdmin, loginAsEmployee, employeeUser } = useAuth();
+  const router = useRouter();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [roster, setRoster]       = useState<RosterData>({});
   const [loading, setLoading]     = useState(true);
@@ -27,12 +30,21 @@ export default function EmployeesPage() {
   const [saving, setSaving]       = useState(false);
 
   // ✅ New Profile Image field added to the form
-  const blank = () => ({ name: '', employeeId: '', role: '', defaultShift: 'morning' as ShiftType, profileImage: '' });
+  const blank = () => ({ name: '', employeeId: '', role: '', defaultShift: 'morning' as ShiftType, profileImage: '', password: '' });
   const [form, setForm] = useState(blank());
 
   const [leaveModal, setLeaveModal] = useState<{ emp: Employee } | null>(null);
   const [leaveForm, setLeaveForm]   = useState({ fromDate: todayKey(), toDate: todayKey(), reason: '' });
   const [assignTarget, setAssignTarget] = useState<{ emp: Employee; date: string } | null>(null);
+
+  const [loginModal, setLoginModal] = useState<{ emp: Employee } | null>(null);
+  const [loginPass, setLoginPass]   = useState('');
+  const [loginErr, setLoginErr]     = useState('');
+
+  // Global Dialog States
+  const [alertConfig, setAlertConfig] = useState<{ open: boolean; title?: string; message: string; type?: 'error'|'warning' }>({ open: false, message: '' });
+  const [confirmConfig, setConfirmConfig] = useState<{ open: boolean; title: string; message: string; isDestructive?: boolean; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
+  const [promptConfig, setPromptConfig] = useState<{ open: boolean; title: string; message: string; type?: 'text'|'password'; onConfirm: (v: string) => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
 
   const load = useCallback(async (forceRefresh = false) => {
     setLoading(true);
@@ -52,16 +64,30 @@ export default function EmployeesPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  useEffect(() => {
+    if (employees.length > 0 && typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const id = params.get('id');
+      if (id && !selected) {
+        const emp = employees.find(e => e.id === id);
+        if (emp) setSelected(emp);
+        
+        // Remove the query string so it doesn't persist on refresh
+        window.history.replaceState(null, '', '/employees');
+      }
+    }
+  }, [employees, selected]);
+
   const filtered = employees.filter(e => search === '' || e.name.toLowerCase().includes(search.toLowerCase()) || e.employeeId.toLowerCase().includes(search.toLowerCase()));
 
   function openEdit(emp: Employee) {
     setEditing(emp);
-    setForm({ name: emp.name, employeeId: emp.employeeId, role: emp.role, defaultShift: emp.defaultShift || 'morning', profileImage: emp.profileImage || '' });
+    setForm({ name: emp.name, employeeId: emp.employeeId, role: emp.role, defaultShift: emp.defaultShift || 'morning', profileImage: emp.profileImage || '', password: emp.password || '' });
     setIsAdding(true);
   }
 
   async function save() {
-    if (!form.name || !form.employeeId || !form.role) return alert('Fill required fields');
+    if (!form.name || !form.employeeId || !form.role) return setAlertConfig({ open: true, message: 'Fill required fields' });
     setSaving(true);
     try {
       let updated: Employee[];
@@ -78,25 +104,33 @@ export default function EmployeesPage() {
       setIsAdding(false);
       setEditing(null);
     } catch (e: unknown) {
-      alert(`Save failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
+      setAlertConfig({ open: true, message: `Save failed: ${e instanceof Error ? e.message : 'Unknown error'}` });
     } finally {
       setSaving(false);
     }
   }
 
-  async function remove(id: string) {
-    if (!confirm('Are you sure you want to completely remove this employee?')) return;
-    setSaving(true);
-    try {
-      const updated = employees.filter(e => e.id !== id);
-      await saveEmployees(updated);
-      setEmployees(updated);
-      if (selected?.id === id) setSelected(null);
-    } catch (e: unknown) {
-      alert(`Remove failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
-    } finally {
-      setSaving(false);
-    }
+  function remove(id: string) {
+    setConfirmConfig({
+      open: true,
+      title: 'Remove Employee',
+      message: 'Are you sure you want to completely remove this employee?',
+      isDestructive: true,
+      onConfirm: async () => {
+        setConfirmConfig(p => ({ ...p, open: false }));
+        setSaving(true);
+        try {
+          const updated = employees.filter(e => e.id !== id);
+          await saveEmployees(updated);
+          setEmployees(updated);
+          if (selected?.id === id) setSelected(null);
+        } catch (e: unknown) {
+          setAlertConfig({ open: true, message: `Remove failed: ${e instanceof Error ? e.message : 'Unknown error'}` });
+        } finally {
+          setSaving(false);
+        }
+      }
+    });
   }
 
   async function saveLeave() {
@@ -123,32 +157,73 @@ export default function EmployeesPage() {
       setRoster(next);
       setLeaveModal(null);
     } catch (e: unknown) {
-      alert(`Failed to save leave: ${e instanceof Error ? e.message : 'Unknown error'}`);
+      setAlertConfig({ open: true, message: `Failed to save leave: ${e instanceof Error ? e.message : 'Unknown error'}` });
     } finally {
       setSaving(false);
     }
   }
 
-  async function removeLeave(leave: { employeeId: string, fromDate: string, toDate: string }) {
-    if (!confirm('Cancel this leave?')) return;
+  function removeLeave(leave: { employeeId: string, fromDate: string, toDate: string }) {
+    setConfirmConfig({
+      open: true,
+      title: 'Cancel Leave',
+      message: 'Are you sure you want to cancel this leave?',
+      isDestructive: true,
+      onConfirm: async () => {
+        setConfirmConfig(p => ({ ...p, open: false }));
+        setSaving(true);
+        try {
+          let next = { ...roster };
+          const start = new Date(leave.fromDate + 'T00:00:00');
+          const end = new Date(leave.toDate + 'T00:00:00');
+          
+          for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+            const date = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+            const updatedList = (next[date] ?? []).filter(a =>
+              !( (a.employeeId === leave.employeeId || a.employeeId === selected?.employeeId) && a.reason?.startsWith('LEAVE|') )
+            );
+            next[date] = updatedList;
+          }
+          await saveRoster(next);
+          setRoster(next);
+        } catch (e: unknown) {
+          setAlertConfig({ open: true, message: `Failed to cancel leave: ${e instanceof Error ? e.message : 'Unknown error'}` });
+        } finally {
+          setSaving(false);
+        }
+      }
+    });
+  }
+
+  async function changeEmployeePassword(id: string, newPass: string) {
     setSaving(true);
     try {
-      let next = { ...roster };
-      const start = new Date(leave.fromDate + 'T00:00:00');
-      const end = new Date(leave.toDate + 'T00:00:00');
-      
-      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-        const date = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-        const updatedList = (next[date] ?? []).filter(a =>
-          !( (a.employeeId === leave.employeeId || a.employeeId === selected?.employeeId) && a.reason?.startsWith('LEAVE|') )
-        );
-        next[date] = updatedList;
+      const emps = await getEmployees();
+      const idx = emps.findIndex(e => e.id === id);
+      if (idx > -1) {
+        emps[idx].password = newPass;
+        await saveEmployees(emps);
+        setEmployees(emps);
+        if (selected?.id === id) {
+          setSelected(emps[idx]);
+        }
       }
-      await saveRoster(next);
-      setRoster(next);
     } catch (e: unknown) {
-      alert(`Failed to cancel leave: ${e instanceof Error ? e.message : 'Unknown error'}`);
+      setAlertConfig({ open: true, message: `Failed to update password: ${e instanceof Error ? e.message : 'Unknown error'}` });
     } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleEmployeeLogin() {
+    if (!loginModal) return;
+    setSaving(true);
+    setLoginErr('');
+    const ok = await loginAsEmployee(loginModal.emp.id, loginPass);
+    if (ok) {
+      router.push('/my-schedule');
+    } else {
+      setLoginErr('Incorrect password');
       setSaving(false);
     }
   }
@@ -238,7 +313,14 @@ export default function EmployeesPage() {
              <Avatar emp={selected} className="w-full h-full" />
           </div>
           <div>
-            <h2 className="text-2xl font-bold tracking-tight">{selected.name}</h2>
+            <div className="flex items-center gap-3">
+              <h2 className="text-2xl font-bold tracking-tight">{selected.name}</h2>
+              {!isAdmin && employeeUser?.id !== selected.id && (
+                <button className="btn-primary py-1 px-3 text-xs shadow-sm bg-teal-600 hover:bg-teal-700 border-none" onClick={() => { setLoginPass(''); setLoginErr(''); setLoginModal({ emp: selected }); }}>
+                  🔒 Login
+                </button>
+              )}
+            </div>
             <div className="text-gray-500 mt-1 flex items-center gap-2">
               <span className="bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded text-xs font-medium">ID: {selected.employeeId}</span>
               <span>·</span>
@@ -346,6 +428,96 @@ export default function EmployeesPage() {
           })}
         </div>
       </div>
+
+      {selected.requests && Object.values(selected.requests).filter(r => r.status !== 'pending').length > 0 && (
+        <div className="card p-6 border border-gray-100 dark:border-gray-800 shadow-sm mt-4">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2">
+              <span className="text-lg">🗂️</span> Request History
+            </h3>
+          </div>
+          <div className="space-y-2 max-h-64 overflow-y-auto pr-2">
+            {Object.values(selected.requests)
+              .filter(r => r.status !== 'pending')
+              .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+              .map((req, idx) => (
+                <div key={idx} className="bg-gray-50 dark:bg-gray-800/50 p-3 rounded-xl flex items-center justify-between border border-gray-100 dark:border-gray-700">
+                  <div>
+                    <div className="font-semibold text-sm">
+                      {req.type === 'leave' ? `Leave Request` : req.type === 'off' ? `Off Day Request` : `Shift Switch (${SHIFT_INFO[req.requestedShift!]?.label})`}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">Requested for: <strong>{req.date}</strong></div>
+                    {req.reason && <div className="text-xs text-gray-500 mt-0.5">Reason: {req.reason}</div>}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {req.status === 'approved' && <span className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 px-3 py-1 rounded-lg text-xs font-bold uppercase tracking-wider">Approved</span>}
+                    {req.status === 'rejected' && <span className="bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400 px-3 py-1 rounded-lg text-xs font-bold uppercase tracking-wider">Rejected</span>}
+                  </div>
+                </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 🔐 Admin Security Panel */}
+      {isAdmin && (
+        <div className="card p-6 border border-red-100 dark:border-red-900/30 shadow-sm mt-4 bg-red-50/30 dark:bg-red-900/10">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2">
+              <span className="text-lg">🔐</span> Security & Access
+            </h3>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-200 dark:border-gray-700">
+            <div>
+              <div className="text-sm font-medium text-gray-500 mb-1">Current Password</div>
+              <div className="font-mono text-lg font-bold tracking-widest text-gray-900 dark:text-gray-100">
+                {selected.password || <span className="text-gray-400 italic font-sans text-sm tracking-normal">Not set (Uses default '1234')</span>}
+              </div>
+            </div>
+            <div className="flex items-center gap-2 w-full sm:w-auto mt-2 sm:mt-0">
+              <button 
+                className="btn-ghost flex-1 sm:flex-none border border-gray-200 dark:border-gray-700 text-xs py-1.5"
+                disabled={saving}
+                onClick={() => {
+                  setPromptConfig({
+                    open: true,
+                    title: 'Change Password',
+                    message: `Enter new password for ${selected.name}`,
+                    type: 'text',
+                    onConfirm: (val) => {
+                      setPromptConfig(p => ({ ...p, open: false }));
+                      if (val) changeEmployeePassword(selected.id, val);
+                    }
+                  });
+                }}
+              >
+                Change
+              </button>
+              {selected.password && (
+                <button 
+                  className="btn-ghost flex-1 sm:flex-none text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 border border-gray-200 dark:border-gray-700 text-xs py-1.5"
+                  disabled={saving}
+                  onClick={() => {
+                    setConfirmConfig({
+                      open: true,
+                      title: 'Remove Password',
+                      message: `Remove password? They will login with default '1234'.`,
+                      isDestructive: true,
+                      onConfirm: () => {
+                        setConfirmConfig(p => ({ ...p, open: false }));
+                        changeEmployeePassword(selected.id, '');
+                      }
+                    });
+                  }}
+                >
+                  Remove
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   ) : null;
 
@@ -424,6 +596,29 @@ export default function EmployeesPage() {
         </div>
       )}
 
+      {loginModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+          <div className="card p-6 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-200">
+            <h2 className="text-xl font-bold mb-2 flex items-center gap-2">🔒 Login as {loginModal.emp.name}</h2>
+            <p className="text-sm text-gray-500 mb-5">Enter password to access schedule & requests.</p>
+            {loginErr && <div className="bg-red-50 text-red-600 text-sm p-2 rounded mb-4">{loginErr}</div>}
+            <div className="space-y-4">
+              <div className="hidden">
+                <input type="text" autoComplete="username" value={loginModal.emp.employeeId} readOnly />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Password</label>
+                <input type="password" autoComplete="current-password" autoFocus className="input" placeholder="••••••••" value={loginPass} onChange={e => setLoginPass(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleEmployeeLogin()} />
+              </div>
+            </div>
+            <div className="flex gap-3 mt-8">
+              <button className="btn-primary flex-1 shadow-sm" onClick={handleEmployeeLogin} disabled={saving}>{saving ? 'Signing in...' : 'Login'}</button>
+              <button className="btn-ghost flex-1 border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800" onClick={() => setLoginModal(null)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {assignTarget && (
         <AssignShiftModal
           employee={assignTarget.emp}
@@ -434,6 +629,10 @@ export default function EmployeesPage() {
           onClose={() => setAssignTarget(null)}
         />
       )}
+
+      <AlertDialog {...alertConfig} onClose={() => setAlertConfig(p => ({ ...p, open: false }))} />
+      <ConfirmDialog {...confirmConfig} onCancel={() => setConfirmConfig(p => ({ ...p, open: false }))} />
+      <PromptDialog {...promptConfig} onCancel={() => setPromptConfig(p => ({ ...p, open: false }))} />
     </div>
   );
 }

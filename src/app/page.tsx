@@ -1,8 +1,9 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
-import { getEmployees, getRoster, saveRoster, saveEmployees, SHIFT_INFO, todayKey, formatDate, get15Days, getNightShiftProgress, invalidateCache, getAssignment } from '@/lib/store';
-import { Employee, RosterData, ShiftType } from '@/types';
+import { getEmployees, getRoster, saveRoster, saveEmployees, SHIFT_INFO, todayKey, formatDate, get15Days, getNightShiftProgress, invalidateCache, getAssignment, upsertAssignment } from '@/lib/store';
+import { Employee, RosterData, ShiftType, ShiftRequest } from '@/types';
 import { useAuth } from '@/lib/auth';
+import { useRouter } from 'next/navigation';
 
 const TODAY_SHIFTS: ShiftType[] = ['morning', 'evening', 'night'];
 
@@ -32,6 +33,7 @@ function Avatar({ emp, className = '' }: { emp: Employee, className?: string }) 
 
 export default function DashboardPage() {
   const { isAdmin } = useAuth();
+  const router = useRouter();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [roster, setRoster]       = useState<RosterData>({});
   const [loading, setLoading]     = useState(true);
@@ -56,6 +58,42 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  const allPendingRequests = employees.flatMap(emp => {
+    if (!emp.requests) return [];
+    return Object.values(emp.requests).filter(r => r.status === 'pending').map(r => ({ emp, req: r }));
+  });
+
+  async function handleApprove(emp: Employee, req: ShiftRequest) {
+    const isLeave = req.type === 'leave';
+    const newRoster = await upsertAssignment(roster, req.date, {
+      employeeId: emp.id,
+      shift: (req.type === 'off' || isLeave) ? 'off' : (req.requestedShift || 'morning'),
+      effectiveFrom: req.date,
+      effectiveTo: req.date,
+      isOffDayOverride: true,
+      reason: isLeave ? `LEAVE|${req.date}|${req.date}|${req.reason || 'Leave'}` : `Approved Request: ${req.type}`,
+    });
+    setRoster(newRoster);
+
+    const emps = [...employees];
+    const e = emps.find(x => x.id === emp.id);
+    if (e && e.requests) {
+      e.requests[req.date] = { ...e.requests[req.date], status: 'approved' };
+      setEmployees(emps);
+      await saveEmployees(emps);
+    }
+  }
+
+  async function handleReject(emp: Employee, req: ShiftRequest) {
+    const emps = [...employees];
+    const e = emps.find(x => x.id === emp.id);
+    if (e && e.requests) {
+      e.requests[req.date] = { ...e.requests[req.date], status: 'rejected' };
+      setEmployees(emps);
+      await saveEmployees(emps);
+    }
+  }
 
   const empMap = Object.fromEntries(employees.map(e => [e.id, e]));
 
@@ -243,6 +281,15 @@ export default function DashboardPage() {
           </div>
         )}
         {progress.total === 0 && <p className="text-[10px] text-gray-400 mt-1">No night shifts this month.</p>}
+
+        <div className="mt-3 pt-2 border-t border-gray-100 dark:border-gray-800">
+          <button 
+            className="w-full btn-secondary py-1.5 text-xs flex items-center justify-center gap-1 bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            onClick={() => router.push(`/employees?id=${employee.id}`)}
+          >
+            <span>👤</span> Go to Profile
+          </button>
+        </div>
       </div>
     );
   }
@@ -400,6 +447,33 @@ export default function DashboardPage() {
           ↻ Refresh
         </button>
       </div>
+
+      {isAdmin && allPendingRequests.length > 0 && (
+        <div className="card p-4 border-yellow-300 bg-yellow-50 dark:bg-yellow-900/20 dark:border-yellow-700">
+          <h2 className="font-bold text-yellow-800 dark:text-yellow-400 mb-3 flex items-center gap-2">
+            <span>⚠️</span> Pending Requests ({allPendingRequests.length})
+          </h2>
+          <div className="space-y-2">
+            {allPendingRequests.map(({ emp, req }) => (
+              <div key={`${emp.id}-${req.date}`} className="bg-white dark:bg-gray-800 p-3 rounded-xl flex items-center justify-between border border-yellow-200 dark:border-yellow-800/50">
+                <div className="flex items-center gap-3">
+                  <Avatar emp={emp} className="w-8 h-8 rounded-full bg-yellow-100 text-yellow-600 flex items-center justify-center text-xs" />
+                  <div>
+                    <div className="text-sm font-semibold">{emp.name}</div>
+                    <div className="text-xs text-gray-500">
+                      Requested <strong>{req.type === 'leave' ? `Leave${req.reason ? ` (${req.reason})` : ''}` : req.type === 'off' ? 'Off Day' : SHIFT_INFO[req.requestedShift!]?.label + ' Shift'}</strong> for <strong>{req.date}</strong>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button className="btn-primary py-1 px-3 text-xs" onClick={() => handleApprove(emp, req)}>Approve</button>
+                  <button className="btn-secondary py-1 px-3 text-xs text-red-500 border-red-200 hover:bg-red-50" onClick={() => handleReject(emp, req)}>Reject</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

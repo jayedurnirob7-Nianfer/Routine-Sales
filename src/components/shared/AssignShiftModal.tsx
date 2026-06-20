@@ -6,6 +6,7 @@ import {
   upsertAssignmentLocal, saveRoster,
   applyWeeklyOffDay, overrideSingleDay,
 } from '@/lib/store';
+import { ConfirmDialog } from '@/components/shared/Dialogs';
 
 interface Props {
   employee: Employee;
@@ -25,6 +26,8 @@ export default function AssignShiftModal({ employee, date, currentShift, roster,
   const [reason, setReason]   = useState('');
   const [offMode, setOffMode] = useState<OffMode>(null);
   const [saving, setSaving]   = useState(false);
+  
+  const [confirmConfig, setConfirmConfig] = useState<{ open: boolean; title: string; message: string; isDestructive?: boolean; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
 
   const [selectedWeekday, setSelectedWeekday] = useState<number>(
     employee.weeklyOffDay ?? new Date(date + 'T00:00:00').getDay()
@@ -87,36 +90,44 @@ export default function AssignShiftModal({ employee, date, currentShift, roster,
   }
 
   // ✅ FIXED: Now properly deletes the assignment from the database
-  async function handleClear() {
-    if (!confirm('Are you sure you want to completely remove all assigned shifts for this date range?')) return;
-    setSaving(true);
-    try {
-      const [fy, fm, fd] = fromDate.split('-').map(Number);
-      const [ty, tm, td] = toDate.split('-').map(Number);
-      const start   = new Date(fy, fm - 1, fd);
-      const end     = new Date(ty, tm - 1, td);
-      let current   = new Date(start);
-      let updated   = { ...roster };
+  function handleClear() {
+    setConfirmConfig({
+      open: true,
+      title: 'Remove Shifts',
+      message: 'Are you sure you want to completely remove all assigned shifts for this date range?',
+      isDestructive: true,
+      onConfirm: async () => {
+        setConfirmConfig(p => ({ ...p, open: false }));
+        setSaving(true);
+        try {
+          const [fy, fm, fd] = fromDate.split('-').map(Number);
+          const [ty, tm, td] = toDate.split('-').map(Number);
+          const start   = new Date(fy, fm - 1, fd);
+          const end     = new Date(ty, tm - 1, td);
+          let current   = new Date(start);
+          let updated   = { ...roster };
 
-      while (current <= end) {
-        const y = current.getFullYear();
-        const m = String(current.getMonth() + 1).padStart(2, '0');
-        const d = String(current.getDate()).padStart(2, '0');
-        const dateStr = `${y}-${m}-${d}`;
+          while (current <= end) {
+            const y = current.getFullYear();
+            const m = String(current.getMonth() + 1).padStart(2, '0');
+            const d = String(current.getDate()).padStart(2, '0');
+            const dateStr = `${y}-${m}-${d}`;
 
-        // Filter out both the hidden UUID and the public Employee ID to guarantee deletion
-        const others = (updated[dateStr] ?? []).filter(a => a.employeeId !== employee.id && a.employeeId !== employee.employeeId);
-        updated = { ...updated, [dateStr]: others };
+            // Filter out both the hidden UUID and the public Employee ID to guarantee deletion
+            const others = (updated[dateStr] ?? []).filter(a => a.employeeId !== employee.id && a.employeeId !== employee.employeeId);
+            updated = { ...updated, [dateStr]: others };
 
-        current.setDate(current.getDate() + 1);
+            current.setDate(current.getDate() + 1);
+          }
+
+          await saveRoster(updated);
+          onSave(updated, employee);
+        } finally {
+          setSaving(false);
+          onClose();
+        }
       }
-
-      await saveRoster(updated);
-      onSave(updated, employee);
-    } finally {
-      setSaving(false);
-      onClose();
-    }
+    });
   }
 
   const canSave = !showOffOptions || offMode !== null;
@@ -273,6 +284,7 @@ export default function AssignShiftModal({ employee, date, currentShift, roster,
           </div>
         </div>
       </div>
+      <ConfirmDialog {...confirmConfig} onCancel={() => setConfirmConfig(p => ({ ...p, open: false }))} />
     </div>
   );
 }

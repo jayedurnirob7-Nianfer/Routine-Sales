@@ -9,6 +9,15 @@ export interface ShiftInfo {
   border: string;
 }
 
+export interface ShiftRequest {
+  date: string;
+  type: 'off' | 'shift' | 'leave';
+  requestedShift?: ShiftType;
+  status: 'pending' | 'approved' | 'rejected';
+  reason?: string;
+  createdAt: string;
+}
+
 export interface Employee {
   id: string;
   name: string;
@@ -18,7 +27,9 @@ export interface Employee {
   createdAt: string;
   weeklyOffDay?: number; 
   defaultShift?: ShiftType; 
-  profileImage?: string; // ✅ New Image field
+  profileImage?: string;
+  password?: string;
+  requests?: Record<string, ShiftRequest>;
 }
 
 export interface ShiftAssignment {

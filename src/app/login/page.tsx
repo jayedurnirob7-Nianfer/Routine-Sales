@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { useSettings } from '@/lib/settings';
@@ -13,13 +13,21 @@ export default function LoginPage() {
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(false);
 
-  if (isAdmin) { router.push('/'); return null; }
+  useEffect(() => {
+    if (isAdmin) {
+      router.push('/');
+    }
+  }, [isAdmin, router]);
+
+  if (isAdmin) { return null; }
 
   async function handleSubmit() {
     setLoading(true);
     setErr('');
     const ok = await login(u, p);
-    if (ok) { router.push('/'); }
+    if (ok) {
+      router.push('/'); 
+    }
     else { setErr('Invalid username or password.'); setLoading(false); }
   }
 
@@ -35,11 +43,11 @@ export default function LoginPage() {
         <div className="space-y-3">
           <div>
             <label className="block text-sm font-medium mb-1">Username</label>
-            <input className="input" placeholder="admin" value={u} onChange={e => setU(e.target.value)} />
+            <input className="input" type="text" autoComplete="username" placeholder="Enter username" value={u} onChange={e => setU(e.target.value)} />
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">Password</label>
-            <input className="input" type="password" placeholder="••••••••" value={p}
+            <input className="input" type="password" autoComplete="current-password" placeholder="••••••••" value={p}
               onChange={e => setP(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleSubmit()} />
           </div>

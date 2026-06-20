@@ -14,7 +14,7 @@ const links = [
 export default function Nav() {
   const pathname = usePathname();
   const router   = useRouter();
-  const { isAdmin, logout } = useAuth();
+  const { isAdmin, employeeUser, logout } = useAuth();
   const { settings } = useSettings();
   const [dark, setDark] = useState(false);
   const [open, setOpen] = useState(false);
@@ -33,7 +33,17 @@ export default function Nav() {
     localStorage.setItem('pxl_dark', next ? '1' : '0');
   }
 
-  const allLinks = [...links, ...(isAdmin ? [{ href: '/settings', label: 'Settings' }] : [])];
+  let allLinks: {href: string, label: string}[] = [];
+  if (isAdmin) {
+    allLinks = [...links, { href: '/settings', label: 'Settings' }];
+  } else if (employeeUser) {
+    allLinks = [{ href: '/my-schedule', label: 'My Schedule' }];
+  } else {
+    // If neither logged in, maybe show Dashboard if it's public? 
+    // The prompt didn't say Dashboard is private. Actually it is private now? 
+    // Usually Dashboard was public for everyone to view. We'll leave it as `links`.
+    allLinks = links; 
+  }
 
   return (
     <nav className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 sticky top-0 z-40 shadow-sm">
@@ -60,9 +70,9 @@ export default function Nav() {
 
         <div className="flex items-center gap-2">
           <button onClick={toggleDark} className="btn-ghost text-lg" title="Toggle theme">{dark ? '☀️' : '🌙'}</button>
-          {isAdmin
+          {isAdmin || employeeUser
             ? <button onClick={() => { logout(); router.push('/'); }} className="text-sm text-red-500 btn-ghost">Sign Out</button>
-            : <Link href="/login" className="btn-primary">Admin Login</Link>}
+            : <Link href="/login" className="btn-primary">Login</Link>}
           <button className="md:hidden btn-ghost" onClick={() => setOpen(!open)}>☰</button>
         </div>
       </div>

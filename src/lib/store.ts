@@ -1,6 +1,6 @@
 import {
   Employee, RosterData, ShiftAssignment,
-  ShiftInfo, ShiftType, SiteSettings, AdminCredentials, LeaveRecord
+  ShiftInfo, ShiftType, SiteSettings, AdminCredentials, LeaveRecord, ShiftRequest
 } from '@/types';
 
 const API_URL = "https://script.google.com/macros/s/AKfycbyRarIsbzP1lrEOzrtOapLUspxMIPNtZTOVAPQh2K9eva4yPgNA0iIxgquf5vGBcBrY/exec";
@@ -52,7 +52,19 @@ function toISODate(dateStr: string): string {
 function toEmployee(e: Record<string, unknown>): Employee {
   let role = String(e.role ?? '');
   let profileImage: string | undefined = undefined;
+  let password = '1234';
+  let requests: Record<string, ShiftRequest> | undefined = undefined;
   
+  if (role.includes('|REQS:')) {
+    const parts = role.split('|REQS:');
+    role = parts[0];
+    try { requests = JSON.parse(parts[1]); } catch {}
+  }
+  if (role.includes('|PWD:')) {
+    const parts = role.split('|PWD:');
+    role = parts[0];
+    password = parts[1];
+  }
   if (role.includes('|IMG:')) {
     const parts = role.split('|IMG:');
     role = parts[0];
@@ -69,6 +81,8 @@ function toEmployee(e: Record<string, unknown>): Employee {
     weeklyOffDay: typeof e.weeklyOffDay === 'number' ? e.weeklyOffDay : (e.weeklyOffDay ? parseInt(String(e.weeklyOffDay), 10) : undefined),
     defaultShift: (e.defaultShift as ShiftType) || 'morning',
     profileImage: profileImage,
+    password: password,
+    requests: requests,
   };
 }
 
@@ -179,10 +193,13 @@ export async function getAdminCreds(): Promise<AdminCredentials> {
 
 // ✅ Magically encodes the image URL into the role column before saving!
 export async function saveEmployees(employees: Employee[]): Promise<void> {
-  const payload = employees.map(e => ({
-    ...e,
-    role: e.profileImage ? `${e.role}|IMG:${e.profileImage}` : e.role,
-  }));
+  const payload = employees.map(e => {
+    let encodedRole = e.role;
+    if (e.profileImage) encodedRole += `|IMG:${e.profileImage}`;
+    if (e.password) encodedRole += `|PWD:${e.password}`;
+    if (e.requests && Object.keys(e.requests).length > 0) encodedRole += `|REQS:${JSON.stringify(e.requests)}`;
+    return { ...e, role: encodedRole };
+  });
   await apiPost('saveEmployees', { employees: payload });
   if (memCache) { memCache = { ...memCache, employees }; lsSet(LS_KEY, memCache); }
 }

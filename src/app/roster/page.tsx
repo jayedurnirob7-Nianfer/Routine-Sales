@@ -5,6 +5,7 @@ import { Employee, RosterData, ShiftType } from '@/types';
 import { useAuth } from '@/lib/auth';
 import ShiftBadge from '@/components/shared/ShiftBadge';
 import AssignShiftModal from '@/components/shared/AssignShiftModal';
+import { AlertDialog } from '@/components/shared/Dialogs';
 
 const SHIFTS: ShiftType[] = ['morning', 'evening', 'night', 'off'];
 
@@ -20,6 +21,7 @@ export default function RosterPage() {
   const [archiveMonth, setArchiveMonth] = useState<string>('current');
   const [archiveRoster, setArchiveRoster] = useState<RosterData | null>(null);
   const [loadingArchive, setLoadingArchive] = useState(false);
+  const [alertConfig, setAlertConfig] = useState<{ open: boolean; title?: string; message: string; type?: 'error'|'warning' }>({ open: false, message: '' });
 
   const monthOptions = [{ value: 'current', label: 'Current Roster' }];
   const d = new Date();
@@ -226,6 +228,8 @@ export default function RosterPage() {
           onClose={() => setAssignTarget(null)}
         />
       )}
+
+      <AlertDialog {...alertConfig} onClose={() => setAlertConfig(p => ({ ...p, open: false }))} />
     </div>
   );
 }
