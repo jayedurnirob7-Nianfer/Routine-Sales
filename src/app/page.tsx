@@ -64,10 +64,6 @@ export default function DashboardPage() {
     return Object.values(emp.requests).filter(r => r.status === 'pending').map(r => ({ emp, req: r }));
   });
 
-  const allResolvedIssues = employees.flatMap(emp => {
-    if (!emp.requests) return [];
-    return Object.values(emp.requests).filter(r => r.status === 'approved' && r.type === 'issue').map(r => ({ emp, req: r }));
-  });
 
   async function handleApprove(emp: Employee, req: ShiftRequest) {
     const isLeave = req.type === 'leave';
@@ -498,7 +494,19 @@ export default function DashboardPage() {
                     <div className="text-sm font-semibold">{emp.name}</div>
                     <div className="text-xs text-gray-500">
                       {req.type === 'issue' ? (
-                        <>Reported Issue for <strong>{req.date}</strong>: <span className="italic">"{req.reason}"</span></>
+                        <div className="flex flex-col gap-1.5 mt-1">
+                          <div className="text-red-800 dark:text-red-400 font-medium">Reported Issue for <strong>{req.date}</strong></div>
+                          {req.reason && (
+                            <details className="group">
+                              <summary className="text-xs font-bold text-red-600 hover:text-red-800 dark:text-red-500 dark:hover:text-red-300 cursor-pointer select-none transition-colors">
+                                Read Full Issue...
+                              </summary>
+                              <div className="mt-2 p-3 bg-red-50/50 dark:bg-red-900/10 border border-red-100 dark:border-red-900/30 rounded-lg text-gray-700 dark:text-gray-300 italic whitespace-pre-wrap leading-relaxed shadow-inner">
+                                {req.reason}
+                              </div>
+                            </details>
+                          )}
+                        </div>
                       ) : (
                         <>Requested <strong>{req.type === 'leave' ? `Leave${req.reason ? ` (${req.reason})` : ''}` : req.type === 'off' ? 'Off Day' : (SHIFT_INFO[req.requestedShift!]?.label || '') + ' Shift'}</strong> for <strong>{req.date}</strong></>
                       )}
@@ -519,31 +527,6 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {isAdmin && allResolvedIssues.length > 0 && (
-        <div className="card p-4 border-green-300 bg-green-50 dark:bg-green-900/10 dark:border-green-800/50">
-          <h2 className="font-bold text-green-800 dark:text-green-500 mb-3 flex items-center gap-2">
-            <span>✅</span> Resolved Tickets History ({allResolvedIssues.length})
-          </h2>
-          <div className="space-y-2">
-            {allResolvedIssues.map(({ emp, req }) => (
-              <div key={`${emp.id}-${req.date}-resolved`} className="bg-white/60 dark:bg-gray-800/60 p-3 rounded-xl flex items-center justify-between border border-green-200 dark:border-green-900/50 opacity-80 hover:opacity-100 transition-opacity">
-                <div className="flex items-center gap-3">
-                  <Avatar emp={emp} className="w-8 h-8 rounded-full bg-green-100 text-green-600 flex items-center justify-center text-xs" />
-                  <div>
-                    <div className="text-sm font-semibold text-gray-700 dark:text-gray-300">{emp.name}</div>
-                    <div className="text-xs text-gray-500">
-                      Issue on <strong>{req.date}</strong>: <span className="italic">"{req.reason}"</span>
-                    </div>
-                  </div>
-                </div>
-                <div className="text-xs font-bold text-green-600 dark:text-green-500 bg-green-100 dark:bg-green-900/30 px-2 py-1 rounded">
-                  Resolved
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       <div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
