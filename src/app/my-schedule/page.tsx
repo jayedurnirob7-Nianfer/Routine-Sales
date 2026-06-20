@@ -20,7 +20,7 @@ export default function MySchedulePage() {
 
   // Modal State
   const [reqDate, setReqDate] = useState<string | null>(null);
-  const [reqType, setReqType] = useState<'off' | 'shift' | 'leave'>('off');
+  const [reqType, setReqType] = useState<'off' | 'shift' | 'leave' | 'issue'>('off');
   const [reqReason, setReqReason] = useState('');
   const [reqShift, setReqShift] = useState<ShiftType>('morning');
   const [saving, setSaving] = useState(false);
