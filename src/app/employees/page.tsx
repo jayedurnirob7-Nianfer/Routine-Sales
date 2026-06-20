@@ -524,7 +524,7 @@ export default function EmployeesPage() {
   return (
     <div className="flex flex-col md:flex-row gap-6 h-[calc(100vh-6rem)]">
       {/* Left List */}
-      <div className="w-full md:w-80 flex flex-col gap-4">
+      <div className={`w-full md:w-80 flex-col gap-4 ${selected ? 'hidden md:flex' : 'flex'}`}>
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">Team</h1>
           {isAdmin && <button className="btn-primary text-xs py-1.5" onClick={() => { setForm(blank()); setIsAdding(true); }}>+ Add</button>}
@@ -550,19 +550,20 @@ export default function EmployeesPage() {
                 </div>
                 <div className={`text-gray-400 text-lg transition-transform duration-200 ${selected?.id === emp.id ? 'rotate-90 text-teal-500' : ''}`}>›</div>
               </button>
-              
-              {selected?.id === emp.id && (
-                <div className="md:hidden px-1 animate-in slide-in-from-top-2 fade-in duration-200">
-                  {detailsPanel}
-                </div>
-              )}
             </div>
           ))}
         </div>
       </div>
 
-      <div className="hidden md:flex flex-1 min-w-0 flex-col overflow-auto pr-2">
-        {selected ? detailsPanel : (
+      <div className={`flex-1 min-w-0 flex-col overflow-auto md:pr-2 ${selected ? 'flex' : 'hidden md:flex'}`}>
+        {selected ? (
+          <>
+            <button className="md:hidden mb-4 text-teal-600 font-medium flex items-center gap-1 self-start" onClick={() => setSelected(null)}>
+              ← Back to list
+            </button>
+            {detailsPanel}
+          </>
+        ) : (
           <div className="h-full flex flex-col items-center justify-center text-gray-400 card border border-dashed border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/50">
             <div className="text-5xl mb-4 opacity-50 grayscale">👤</div>
             <p className="text-lg font-medium text-gray-500">Select an employee to view details</p>

@@ -11,7 +11,7 @@ export interface ShiftInfo {
 
 export interface ShiftRequest {
   date: string;
-  type: 'off' | 'shift' | 'leave';
+  type: 'off' | 'shift' | 'leave' | 'issue';
   requestedShift?: ShiftType;
   status: 'pending' | 'approved' | 'rejected';
   reason?: string;

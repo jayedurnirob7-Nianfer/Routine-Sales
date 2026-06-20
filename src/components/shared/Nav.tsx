@@ -50,10 +50,10 @@ export default function Nav() {
       <div className="max-w-7xl mx-auto px-4 flex items-center justify-between h-14">
         <Link href="/" className="font-bold text-teal-600 text-lg tracking-tight flex items-center gap-2">
           {settings.logoImage
-  ? <img src={settings.logoImage} alt="logo" className="w-7 h-7 rounded object-cover" />
-  : <span className="text-xl">{settings.logoEmoji}</span>
-}
-          <span className="hidden sm:inline">{settings.siteName}</span>
+            ? <img src={settings.logoImage} alt="logo" className="w-7 h-7 rounded object-cover" />
+            : <span className="text-xl">{settings.logoEmoji}</span>
+          }
+          <span className="truncate max-w-[200px] sm:max-w-none">{settings.siteName}</span>
         </Link>
 
         <div className="hidden md:flex items-center gap-1">

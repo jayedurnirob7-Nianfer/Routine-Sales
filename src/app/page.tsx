@@ -64,17 +64,25 @@ export default function DashboardPage() {
     return Object.values(emp.requests).filter(r => r.status === 'pending').map(r => ({ emp, req: r }));
   });
 
+  const allResolvedIssues = employees.flatMap(emp => {
+    if (!emp.requests) return [];
+    return Object.values(emp.requests).filter(r => r.status === 'approved' && r.type === 'issue').map(r => ({ emp, req: r }));
+  });
+
   async function handleApprove(emp: Employee, req: ShiftRequest) {
     const isLeave = req.type === 'leave';
-    const newRoster = await upsertAssignment(roster, req.date, {
-      employeeId: emp.id,
-      shift: (req.type === 'off' || isLeave) ? 'off' : (req.requestedShift || 'morning'),
-      effectiveFrom: req.date,
-      effectiveTo: req.date,
-      isOffDayOverride: true,
-      reason: isLeave ? `LEAVE|${req.date}|${req.date}|${req.reason || 'Leave'}` : `Approved Request: ${req.type}`,
-    });
-    setRoster(newRoster);
+    
+    if (req.type !== 'issue') {
+      const newRoster = await upsertAssignment(roster, req.date, {
+        employeeId: emp.id,
+        shift: (req.type === 'off' || isLeave) ? 'off' : (req.requestedShift || 'morning'),
+        effectiveFrom: req.date,
+        effectiveTo: req.date,
+        isOffDayOverride: true,
+        reason: isLeave ? `LEAVE|${req.date}|${req.date}|${req.reason || 'Leave'}` : `Approved Request: ${req.type}`,
+      });
+      setRoster(newRoster);
+    }
 
     const emps = [...employees];
     const e = emps.find(x => x.id === emp.id);
@@ -151,16 +159,14 @@ export default function DashboardPage() {
   // ✅ Intelligently routes Off days by looking up to 7 days in the past (Fixes Nahid's issue!)
   function getOffEmployeesByPrevShift(date: string) {
     const offToday = getShiftEmployees('off', date);
-    const grouped: Record<ShiftType, Employee[]> = { morning: [], evening: [], night: [], off: [] };
-    const leave: Employee[] = [];
-    const unsorted: Employee[] = [];
+    const groupedOff: Record<ShiftType, Employee[]> = { morning: [], evening: [], night: [], off: [] };
+    const groupedLeave: Record<ShiftType, Employee[]> = { morning: [], evening: [], night: [], off: [] };
+    const unsortedOff: Employee[] = [];
+    const unsortedLeave: Employee[] = [];
 
     offToday.forEach(emp => {
       const assignment = getAssignment(roster, emp, date);
-      if (assignment?.reason?.startsWith('LEAVE|')) {
-        leave.push(emp);
-        return;
-      }
+      const isLeave = assignment?.reason?.startsWith('LEAVE|');
 
       let prevShift: ShiftType | null = null;
       // Look back up to 7 days to find their last real working shift (skips leaves and off days!)
@@ -178,12 +184,20 @@ export default function DashboardPage() {
       }
 
       if (TODAY_SHIFTS.includes(prevShift)) {
-        grouped[prevShift].push(emp);
+        if (isLeave) {
+          groupedLeave[prevShift].push(emp);
+        } else {
+          groupedOff[prevShift].push(emp);
+        }
       } else {
-        unsorted.push(emp);
+        if (isLeave) {
+          unsortedLeave.push(emp);
+        } else {
+          unsortedOff.push(emp);
+        }
       }
     });
-    return { grouped, leave, unsorted };
+    return { groupedOff, groupedLeave, unsortedOff, unsortedLeave };
   }
 
   const all15Days = get15Days(today);
@@ -191,16 +205,17 @@ export default function DashboardPage() {
   function getUpcomingDays() {
     const upcomingDates = all15Days.filter(date => date !== today);
     return upcomingDates.map(date => {
-      const { grouped, leave, unsorted } = getOffEmployeesByPrevShift(date);
+      const { groupedOff, groupedLeave, unsortedOff, unsortedLeave } = getOffEmployeesByPrevShift(date);
       return {
         date,
         shifts: TODAY_SHIFTS.map(shift => ({
           shift,
           employees: getShiftEmployees(shift, date),
-          offEmployees: grouped[shift],
+          offEmployees: groupedOff[shift],
+          leaveEmployees: groupedLeave[shift],
         })),
-        leave,
-        unsortedOff: unsorted,
+        unsortedLeave,
+        unsortedOff,
       };
     });
   }
@@ -328,7 +343,7 @@ export default function DashboardPage() {
     );
   }
 
-  function ShiftCard({ shift, employees, offEmployees, date }: { shift: ShiftType; employees: Employee[]; offEmployees: Employee[]; date: string }) {
+  function ShiftCard({ shift, employees, offEmployees, leaveEmployees, date }: { shift: ShiftType; employees: Employee[]; offEmployees: Employee[]; leaveEmployees: Employee[]; date: string }) {
     const info = SHIFT_INFO[shift];
     return (
       <div className="card overflow-visible flex flex-col h-full">
@@ -358,17 +373,38 @@ export default function DashboardPage() {
             )}
           </div>
 
-          {offEmployees.length > 0 && (
-            <div className="pt-4 border-t border-gray-100 dark:border-gray-800 space-y-2">
-              <div className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold mb-2">
-                {date === today ? '🛌 Off Today' : '🛌 Off Day'}
-              </div>
-              {offEmployees.map(emp => (
-                // ✅ NEW BEAUTIFUL OFF-DAY STYLING
-                <div key={emp.id} className="bg-gray-50/80 dark:bg-gray-800/40 p-1.5 rounded-lg border border-dashed border-gray-200 dark:border-gray-700/60 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
-                  <EmployeeRow emp={emp} date={date} shift={shift} muted />
+          {(offEmployees.length > 0 || leaveEmployees.length > 0) && (
+            <div className="pt-4 border-t border-gray-100 dark:border-gray-800 space-y-3">
+              {offEmployees.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold mb-2">
+                    {date === today ? '🛌 Off Today' : '🛌 Off Day'}
+                  </div>
+                  {offEmployees.map(emp => (
+                    // ✅ NEW BEAUTIFUL OFF-DAY STYLING
+                    <div key={emp.id} className="bg-gray-50/80 dark:bg-gray-800/40 p-1.5 rounded-lg border border-dashed border-gray-200 dark:border-gray-700/60 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+                      <EmployeeRow emp={emp} date={date} shift={shift} muted />
+                    </div>
+                  ))}
                 </div>
-              ))}
+              )}
+              {leaveEmployees.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-[10px] uppercase tracking-wide text-amber-500 font-semibold mb-2">
+                    ✈️ On Leave
+                  </div>
+                  {leaveEmployees.map(emp => {
+                     const assignment = getAssignment(roster, emp, date);
+                     const reason = assignment?.reason?.split('|')[3] || 'Leave';
+                     return (
+                       <div key={emp.id} className="bg-amber-50/50 dark:bg-amber-900/10 p-1.5 rounded-lg border border-amber-200 dark:border-amber-900/50 flex flex-col hover:bg-amber-100/50 dark:hover:bg-amber-900/20 transition-colors">
+                         <EmployeeRow emp={emp} date={date} shift={shift} muted />
+                         <span className="text-[10px] text-amber-600 dark:text-amber-500 ml-10 pb-0.5 -mt-1 font-medium">{reason}</span>
+                       </div>
+                     );
+                  })}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -455,19 +491,53 @@ export default function DashboardPage() {
           </h2>
           <div className="space-y-2">
             {allPendingRequests.map(({ emp, req }) => (
-              <div key={`${emp.id}-${req.date}`} className="bg-white dark:bg-gray-800 p-3 rounded-xl flex items-center justify-between border border-yellow-200 dark:border-yellow-800/50">
+              <div key={`${emp.id}-${req.date}`} className={`bg-white dark:bg-gray-800 p-3 rounded-xl flex items-center justify-between border ${req.type === 'issue' ? 'border-red-200 dark:border-red-900/50' : 'border-yellow-200 dark:border-yellow-800/50'}`}>
                 <div className="flex items-center gap-3">
-                  <Avatar emp={emp} className="w-8 h-8 rounded-full bg-yellow-100 text-yellow-600 flex items-center justify-center text-xs" />
+                  <Avatar emp={emp} className={`w-8 h-8 rounded-full flex items-center justify-center text-xs ${req.type === 'issue' ? 'bg-red-100 text-red-600' : 'bg-yellow-100 text-yellow-600'}`} />
                   <div>
                     <div className="text-sm font-semibold">{emp.name}</div>
                     <div className="text-xs text-gray-500">
-                      Requested <strong>{req.type === 'leave' ? `Leave${req.reason ? ` (${req.reason})` : ''}` : req.type === 'off' ? 'Off Day' : SHIFT_INFO[req.requestedShift!]?.label + ' Shift'}</strong> for <strong>{req.date}</strong>
+                      {req.type === 'issue' ? (
+                        <>Reported Issue for <strong>{req.date}</strong>: <span className="italic">"{req.reason}"</span></>
+                      ) : (
+                        <>Requested <strong>{req.type === 'leave' ? `Leave${req.reason ? ` (${req.reason})` : ''}` : req.type === 'off' ? 'Off Day' : SHIFT_INFO[req.requestedShift!]?.label + ' Shift'}</strong> for <strong>{req.date}</strong></>
+                      )}
                     </div>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button className="btn-primary py-1 px-3 text-xs" onClick={() => handleApprove(emp, req)}>Approve</button>
-                  <button className="btn-secondary py-1 px-3 text-xs text-red-500 border-red-200 hover:bg-red-50" onClick={() => handleReject(emp, req)}>Reject</button>
+                  <button className="btn-primary py-1 px-3 text-xs" onClick={() => handleApprove(emp, req)}>
+                    {req.type === 'issue' ? '✓ Mark Resolved' : 'Approve'}
+                  </button>
+                  {req.type !== 'issue' && (
+                    <button className="btn-secondary py-1 px-3 text-xs text-red-500 border-red-200 hover:bg-red-50" onClick={() => handleReject(emp, req)}>Reject</button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {isAdmin && allResolvedIssues.length > 0 && (
+        <div className="card p-4 border-green-300 bg-green-50 dark:bg-green-900/10 dark:border-green-800/50">
+          <h2 className="font-bold text-green-800 dark:text-green-500 mb-3 flex items-center gap-2">
+            <span>✅</span> Resolved Tickets History ({allResolvedIssues.length})
+          </h2>
+          <div className="space-y-2">
+            {allResolvedIssues.map(({ emp, req }) => (
+              <div key={`${emp.id}-${req.date}-resolved`} className="bg-white/60 dark:bg-gray-800/60 p-3 rounded-xl flex items-center justify-between border border-green-200 dark:border-green-900/50 opacity-80 hover:opacity-100 transition-opacity">
+                <div className="flex items-center gap-3">
+                  <Avatar emp={emp} className="w-8 h-8 rounded-full bg-green-100 text-green-600 flex items-center justify-center text-xs" />
+                  <div>
+                    <div className="text-sm font-semibold text-gray-700 dark:text-gray-300">{emp.name}</div>
+                    <div className="text-xs text-gray-500">
+                      Issue on <strong>{req.date}</strong>: <span className="italic">"{req.reason}"</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="text-xs font-bold text-green-600 dark:text-green-500 bg-green-100 dark:bg-green-900/30 px-2 py-1 rounded">
+                  Resolved
                 </div>
               </div>
             ))}
@@ -482,13 +552,14 @@ export default function DashboardPage() {
               key={shift}
               shift={shift}
               employees={getShiftEmployees(shift)}
-              offEmployees={todayData.grouped[shift]}
+              offEmployees={todayData.groupedOff[shift]}
+              leaveEmployees={todayData.groupedLeave[shift]}
               date={today}
             />
           ))}
         </div>
-        <LeaveCard employees={todayData.leave} date={today} />
-        <OtherOffCard employees={todayData.unsorted} date={today} />
+        <LeaveCard employees={todayData.unsortedLeave} date={today} />
+        <OtherOffCard employees={todayData.unsortedOff} date={today} />
       </div>
 
       <div className="space-y-8 mt-12">
@@ -500,11 +571,11 @@ export default function DashboardPage() {
               📅 {new Date(day.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {day.shifts.map(({ shift, employees, offEmployees }) => (
-                <ShiftCard key={`${day.date}-${shift}`} shift={shift} employees={employees} offEmployees={offEmployees} date={day.date} />
+              {day.shifts.map(({ shift, employees, offEmployees, leaveEmployees }) => (
+                <ShiftCard key={`${day.date}-${shift}`} shift={shift} employees={employees} offEmployees={offEmployees} leaveEmployees={leaveEmployees} date={day.date} />
               ))}
             </div>
-            <LeaveCard employees={day.leave} date={day.date} />
+            <LeaveCard employees={day.unsortedLeave} date={day.date} />
             <OtherOffCard employees={day.unsortedOff} date={day.date} />
           </div>
         ))}

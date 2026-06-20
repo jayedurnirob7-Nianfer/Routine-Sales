@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
 import { AuthProvider } from '@/lib/auth';
@@ -10,6 +10,16 @@ const inter = Inter({ subsets: ['latin'] });
 export const metadata: Metadata = {
   title: 'PXL Sales Routine',
   description: 'Sales team shift schedule manager',
+  manifest: '/Routine-Sales/manifest.json',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'PXL Routine',
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: '#14b8a6',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
