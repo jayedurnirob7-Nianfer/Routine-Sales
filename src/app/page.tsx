@@ -57,7 +57,24 @@ export default function DashboardPage() {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  const loadBackground = useCallback(async () => {
+    try {
+      invalidateCache();
+      const [emps, ros] = await Promise.all([getEmployees(), getRoster()]);
+      setEmployees(emps);
+      setRoster(ros);
+    } catch (e) {
+      // Silent fail for background poll
+    }
+  }, []);
+
+  useEffect(() => { 
+    load(true); // Always fetch fresh data on initial dashboard mount
+    
+    // Poll for new requests silently every 30 seconds
+    const interval = setInterval(loadBackground, 30000);
+    return () => clearInterval(interval);
+  }, [load, loadBackground]);
 
   const allPendingRequests = employees.flatMap(emp => {
     if (!emp.requests) return [];
