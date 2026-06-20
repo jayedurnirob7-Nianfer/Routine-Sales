@@ -500,7 +500,7 @@ export default function DashboardPage() {
                       {req.type === 'issue' ? (
                         <>Reported Issue for <strong>{req.date}</strong>: <span className="italic">"{req.reason}"</span></>
                       ) : (
-                        <>Requested <strong>{req.type === 'leave' ? `Leave${req.reason ? ` (${req.reason})` : ''}` : req.type === 'off' ? 'Off Day' : SHIFT_INFO[req.requestedShift!]?.label + ' Shift'}</strong> for <strong>{req.date}</strong></>
+                        <>Requested <strong>{req.type === 'leave' ? `Leave${req.reason ? ` (${req.reason})` : ''}` : req.type === 'off' ? 'Off Day' : (SHIFT_INFO[req.requestedShift!]?.label || '') + ' Shift'}</strong> for <strong>{req.date}</strong></>
                       )}
                     </div>
                   </div>

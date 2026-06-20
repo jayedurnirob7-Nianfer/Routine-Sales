@@ -70,7 +70,7 @@ export default function MySchedulePage() {
       date: reqDate,
       type: reqType,
       requestedShift: reqType === 'shift' ? reqShift : undefined,
-      reason: reqType === 'leave' ? reqReason : undefined,
+      reason: (reqType === 'leave' || reqType === 'issue') ? reqReason : undefined,
       status: 'pending',
       createdAt: new Date().toISOString()
     };
@@ -178,7 +178,7 @@ export default function MySchedulePage() {
                   <div className="flex items-center gap-2">
                     {(() => {
                       const isLeave = assignment.reason?.startsWith('LEAVE|');
-                      const info = SHIFT_INFO[assignment.shift];
+                      const info = SHIFT_INFO[assignment.shift] || SHIFT_INFO['morning'];
                       return (
                         <span className={`text-[10px] font-black tracking-widest px-2 py-0.5 rounded-lg border shadow-sm ${isLeave ? 'bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/40 dark:text-amber-400 dark:border-amber-800' : `${info.bg} ${info.color} ${info.border}`}`}>
                           {isLeave ? 'LEAVE' : info.label.toUpperCase()}
@@ -190,7 +190,7 @@ export default function MySchedulePage() {
                 
                 {req && req.status === 'pending' && (
                   <div className={`mt-2 text-[10px] font-bold truncate px-2 py-1 rounded-md border ${req.type === 'issue' ? 'text-red-700 bg-red-100 dark:bg-red-900/40 border-red-200 dark:border-red-900/50 dark:text-red-400' : 'text-yellow-700 bg-yellow-100 dark:bg-yellow-900/40 border-yellow-200 dark:border-yellow-900/50 dark:text-yellow-400'}`}>
-                    {req.type === 'issue' ? 'ISSUE REPORTED' : `WAIT: ${req.type === 'leave' ? 'LEAVE' : req.type === 'off' ? 'OFF DAY' : SHIFT_INFO[req.requestedShift!].label.toUpperCase()}`}
+                    {req.type === 'issue' ? 'ISSUE REPORTED' : req.type === 'leave' ? 'WAIT: LEAVE' : req.type === 'off' ? 'WAIT: OFF DAY' : `WAIT: ${(SHIFT_INFO[req.requestedShift!]?.label || '').toUpperCase()}`}
                   </div>
                 )}
               </div>
@@ -228,7 +228,7 @@ export default function MySchedulePage() {
                   <div className="flex items-center gap-2">
                     {(() => {
                       const isLeave = assignment.reason?.startsWith('LEAVE|');
-                      const info = SHIFT_INFO[assignment.shift];
+                      const info = SHIFT_INFO[assignment.shift] || SHIFT_INFO['morning'];
                       return (
                         <span className={`text-xs font-black tracking-widest px-3 py-1 rounded-lg border shadow-sm ${isLeave ? 'bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/40 dark:text-amber-400 dark:border-amber-800' : `${info.bg} ${info.color} ${info.border}`}`}>
                           {isLeave ? 'LEAVE' : info.label.toUpperCase()}
