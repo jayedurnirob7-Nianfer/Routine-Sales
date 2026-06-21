@@ -147,7 +147,7 @@ export default function Nav() {
                     <div className="space-y-3">
                       <div>
                         <label className="block text-xs font-semibold mb-1 text-gray-500">{loginType === 'admin' ? 'Username' : 'Employee ID'}</label>
-                        <input type="text" placeholder={loginType === 'admin' ? 'admin' : 'EMP-001'} className="input text-sm py-1.5" value={loginU} onChange={e => setLoginU(e.target.value)} />
+                        <input type="text" placeholder={loginType === 'admin' ? 'admin' : '29000'} className="input text-sm py-1.5" value={loginU} onChange={e => setLoginU(e.target.value)} />
                       </div>
                       <div>
                         <label className="block text-xs font-semibold mb-1 text-gray-500">Password</label>
