@@ -72,7 +72,7 @@ export default function Nav() {
           <button onClick={toggleDark} className="btn-ghost text-lg" title="Toggle theme">{dark ? '☀️' : '🌙'}</button>
           {isAdmin || employeeUser
             ? <button onClick={() => { logout(); router.push('/'); }} className="text-sm text-red-500 btn-ghost">Sign Out</button>
-            : <Link href="/login" className="btn-primary">Login</Link>}
+            : null}
           <button className="md:hidden btn-ghost" onClick={() => setOpen(!open)}>☰</button>
         </div>
       </div>

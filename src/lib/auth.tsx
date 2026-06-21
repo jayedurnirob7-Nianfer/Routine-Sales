@@ -59,9 +59,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return false;
   }
 
-  async function loginAsEmployee(empId: string, p: string) {
+  async function loginAsEmployee(employeeId: string, p: string) {
     const emps = await getEmployees();
-    const emp = emps.find(e => e.id === empId && (e.password === p || (!e.password && p === '1234')));
+    const emp = emps.find(e => e.employeeId === employeeId && (e.password === p || (!e.password && p === '1234')));
     if (emp) {
       sessionStorage.setItem(EMP_SESSION_KEY, emp.id);
       sessionStorage.removeItem(SESSION_KEY);

@@ -39,6 +39,11 @@ export default function DashboardPage() {
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState<string | null>(null);
   const [popoverTarget, setPopoverTarget] = useState<PopoverTarget | null>(null);
+  const [empLoginId, setEmpLoginId] = useState('');
+  const [empLoginPass, setEmpLoginPass] = useState('');
+  const [empLoginErr, setEmpLoginErr] = useState('');
+  const [empLoginLoading, setEmpLoginLoading] = useState(false);
+  const { loginAsEmployee, employeeUser } = useAuth();
   const today = todayKey();
 
   const load = useCallback(async (forceRefresh = false) => {
@@ -115,6 +120,29 @@ export default function DashboardPage() {
       e.requests[req.date] = { ...e.requests[req.date], status: 'rejected' };
       setEmployees(freshEmps);
       await saveEmployees(freshEmps);
+    }
+  }
+
+  async function handleDeleteRequest(emp: Employee, req: ShiftRequest) {
+    invalidateCache();
+    const freshEmps = await getEmployees();
+    const e = freshEmps.find(x => x.id === emp.id);
+    if (e && e.requests) {
+      delete e.requests[req.date];
+      setEmployees(freshEmps);
+      await saveEmployees(freshEmps);
+    }
+  }
+
+  async function handleEmployeeLogin() {
+    setEmpLoginLoading(true);
+    setEmpLoginErr('');
+    const ok = await loginAsEmployee(empLoginId, empLoginPass);
+    if (ok) {
+      router.push('/my-schedule');
+    } else {
+      setEmpLoginErr('Invalid ID or Password.');
+      setEmpLoginLoading(false);
     }
   }
 
@@ -503,6 +531,31 @@ export default function DashboardPage() {
         </button>
       </div>
 
+      {!isAdmin && !employeeUser && (
+        <div className="card p-6 md:p-8 bg-gradient-to-r from-teal-50 to-emerald-50 dark:from-teal-900/20 dark:to-emerald-900/20 border-teal-100 dark:border-teal-900/50 mb-8 shadow-sm">
+          <div className="max-w-md mx-auto">
+            <h2 className="text-2xl font-bold text-center mb-2 flex items-center justify-center gap-2">
+              <span className="text-3xl">👋</span> Employee Login
+            </h2>
+            <p className="text-gray-500 text-center text-sm mb-6">Enter your Employee ID to access your schedule and submit requests.</p>
+            {empLoginErr && <div className="bg-red-50 text-red-600 text-sm p-3 rounded-xl mb-4 border border-red-100 dark:border-red-900/30 font-medium text-center">{empLoginErr}</div>}
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-semibold mb-1.5 text-gray-700 dark:text-gray-300">Employee ID</label>
+                <input type="text" className="input bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800" placeholder="e.g. EMP-001" value={empLoginId} onChange={e => setEmpLoginId(e.target.value)} />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold mb-1.5 text-gray-700 dark:text-gray-300">Password</label>
+                <input type="password" className="input bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800" placeholder="Default is 1234" value={empLoginPass} onChange={e => setEmpLoginPass(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleEmployeeLogin()} />
+              </div>
+              <button className="btn-primary w-full shadow-md py-2.5 mt-2 text-base" onClick={handleEmployeeLogin} disabled={empLoginLoading}>
+                {empLoginLoading ? 'Authenticating...' : 'Access My Schedule'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {isAdmin && allPendingRequests.length > 0 && (
         <div className="card p-4 border-yellow-300 bg-yellow-50 dark:bg-yellow-900/20 dark:border-yellow-700">
           <h2 className="font-bold text-yellow-800 dark:text-yellow-400 mb-3 flex items-center gap-2">
@@ -543,6 +596,9 @@ export default function DashboardPage() {
                   {req.type !== 'issue' && (
                     <button className="btn-secondary py-1 px-3 text-xs text-red-500 border-red-200 hover:bg-red-50" onClick={() => handleReject(emp, req)}>Reject</button>
                   )}
+                  <button className="btn-ghost py-1 px-2 text-xs text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg" onClick={() => handleDeleteRequest(emp, req)} title="Delete Request">
+                    🗑
+                  </button>
                 </div>
               </div>
             ))}

@@ -41,6 +41,13 @@ export default function EmployeesPage() {
   const [loginPass, setLoginPass]   = useState('');
   const [loginErr, setLoginErr]     = useState('');
 
+  // Admin Login State
+  const [adminLoginU, setAdminLoginU] = useState('');
+  const [adminLoginP, setAdminLoginP] = useState('');
+  const [adminLoginErr, setAdminLoginErr] = useState('');
+  const [adminLoginLoading, setAdminLoginLoading] = useState(false);
+  const { login } = useAuth();
+
   // Global Dialog States
   const [alertConfig, setAlertConfig] = useState<{ open: boolean; title?: string; message: string; type?: 'error'|'warning' }>({ open: false, message: '' });
   const [confirmConfig, setConfirmConfig] = useState<{ open: boolean; title: string; message: string; isDestructive?: boolean; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
@@ -225,6 +232,18 @@ export default function EmployeesPage() {
     } else {
       setLoginErr('Incorrect password');
       setSaving(false);
+    }
+  }
+
+  async function handleAdminLogin() {
+    setAdminLoginLoading(true);
+    setAdminLoginErr('');
+    const ok = await login(adminLoginU, adminLoginP);
+    if (ok) {
+      router.push('/');
+    } else {
+      setAdminLoginErr('Invalid Admin Credentials');
+      setAdminLoginLoading(false);
     }
   }
 
@@ -553,6 +572,20 @@ export default function EmployeesPage() {
             </div>
           ))}
         </div>
+
+        {!isAdmin && (
+          <div className="card p-4 bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 mt-auto">
+            <h3 className="font-bold text-sm mb-3 flex items-center gap-2"><span>🔐</span> Admin Login</h3>
+            {adminLoginErr && <div className="text-red-500 text-xs mb-2 bg-red-50 dark:bg-red-900/20 p-2 rounded">{adminLoginErr}</div>}
+            <div className="space-y-2">
+              <input type="text" placeholder="Username" className="input text-sm py-1.5" value={adminLoginU} onChange={e => setAdminLoginU(e.target.value)} />
+              <input type="password" placeholder="Password" className="input text-sm py-1.5" value={adminLoginP} onChange={e => setAdminLoginP(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAdminLogin()} />
+              <button className="btn-primary w-full text-sm py-1.5" onClick={handleAdminLogin} disabled={adminLoginLoading}>
+                {adminLoginLoading ? 'Logging in...' : 'Sign In'}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className={`flex-1 min-w-0 flex-col overflow-auto md:pr-2 ${selected ? 'flex' : 'hidden md:flex'}`}>
