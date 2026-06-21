@@ -97,22 +97,24 @@ export default function DashboardPage() {
       setRoster(newRoster);
     }
 
-    const emps = [...employees];
-    const e = emps.find(x => x.id === emp.id);
+    invalidateCache();
+    const freshEmps = await getEmployees();
+    const e = freshEmps.find(x => x.id === emp.id);
     if (e && e.requests) {
       e.requests[req.date] = { ...e.requests[req.date], status: 'approved' };
-      setEmployees(emps);
-      await saveEmployees(emps);
+      setEmployees(freshEmps);
+      await saveEmployees(freshEmps);
     }
   }
 
   async function handleReject(emp: Employee, req: ShiftRequest) {
-    const emps = [...employees];
-    const e = emps.find(x => x.id === emp.id);
+    invalidateCache();
+    const freshEmps = await getEmployees();
+    const e = freshEmps.find(x => x.id === emp.id);
     if (e && e.requests) {
       e.requests[req.date] = { ...e.requests[req.date], status: 'rejected' };
-      setEmployees(emps);
-      await saveEmployees(emps);
+      setEmployees(freshEmps);
+      await saveEmployees(freshEmps);
     }
   }
 
