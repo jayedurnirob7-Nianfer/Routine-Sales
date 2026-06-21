@@ -46,6 +46,7 @@ export default function Nav() {
   }
 
   const [showLoginPop, setShowLoginPop] = useState(false);
+  const [loginType, setLoginType] = useState<'employee' | 'admin'>('employee');
   const [loginU, setLoginU] = useState('');
   const [loginP, setLoginP] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
@@ -59,13 +60,11 @@ export default function Nav() {
     setLoginErr('');
   }, [pathname]);
 
-  const isEmployeePage = pathname === '/employees';
-
   async function handleLogin() {
     setLoginLoading(true);
     setLoginErr('');
     let ok = false;
-    if (isEmployeePage) {
+    if (loginType === 'admin') {
       ok = await login(loginU, loginP);
     } else {
       ok = await loginAsEmployee(loginU, loginP);
@@ -73,7 +72,8 @@ export default function Nav() {
     
     if (ok) {
       setShowLoginPop(false);
-      if (!isEmployeePage) router.push('/my-schedule');
+      if (loginType === 'employee') router.push('/my-schedule');
+      if (loginType === 'admin') router.push('/');
     } else {
       setLoginErr('Invalid credentials');
       setLoginLoading(false);
@@ -112,23 +112,42 @@ export default function Nav() {
             <div className="relative">
               <button 
                 onClick={() => setShowLoginPop(!showLoginPop)} 
-                className="btn-primary text-sm px-4 py-1.5 shadow-sm transition-transform active:scale-95"
+                className="btn-primary text-sm px-4 py-1.5 shadow-sm transition-transform active:scale-95 flex items-center gap-2"
               >
-                {isEmployeePage ? 'Admin Login' : 'Employee Login'}
+                🔐 Login
               </button>
               
               {showLoginPop && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setShowLoginPop(false)}></div>
-                  <div className="absolute right-0 top-full mt-2 w-72 card p-5 shadow-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 z-50 animate-in fade-in slide-in-from-top-2 duration-200 origin-top-right">
+                  <div className="absolute right-0 top-full mt-2 w-[300px] card p-5 shadow-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 z-50 animate-in fade-in slide-in-from-top-2 duration-200 origin-top-right">
+                    
+                    {/* Tabs */}
+                    <div className="flex bg-gray-100 dark:bg-gray-800 p-1 rounded-lg mb-4">
+                      <button 
+                        className={`flex-1 text-sm py-1.5 rounded-md font-medium transition-all ${loginType === 'employee' ? 'bg-white dark:bg-gray-700 shadow-sm text-teal-600 dark:text-teal-400' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+                        onClick={() => { setLoginType('employee'); setLoginU(''); setLoginP(''); setLoginErr(''); }}
+                      >
+                        Employee
+                      </button>
+                      <button 
+                        className={`flex-1 text-sm py-1.5 rounded-md font-medium transition-all ${loginType === 'admin' ? 'bg-white dark:bg-gray-700 shadow-sm text-teal-600 dark:text-teal-400' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+                        onClick={() => { setLoginType('admin'); setLoginU(''); setLoginP(''); setLoginErr(''); }}
+                      >
+                        Admin
+                      </button>
+                    </div>
+
                     <h3 className="font-bold text-base mb-3 flex items-center gap-2">
-                      {isEmployeePage ? <span>🔐 Admin Login</span> : <span>👋 Employee Login</span>}
+                      {loginType === 'admin' ? <span>🔐 Admin Login</span> : <span>👋 Employee Login</span>}
                     </h3>
+                    
                     {loginErr && <div className="text-red-500 text-xs mb-3 bg-red-50 dark:bg-red-900/20 p-2 rounded border border-red-100 dark:border-red-900/30">{loginErr}</div>}
+                    
                     <div className="space-y-3">
                       <div>
-                        <label className="block text-xs font-semibold mb-1 text-gray-500">{isEmployeePage ? 'Username' : 'Employee ID'}</label>
-                        <input type="text" placeholder={isEmployeePage ? 'admin' : 'EMP-001'} className="input text-sm py-1.5" value={loginU} onChange={e => setLoginU(e.target.value)} />
+                        <label className="block text-xs font-semibold mb-1 text-gray-500">{loginType === 'admin' ? 'Username' : 'Employee ID'}</label>
+                        <input type="text" placeholder={loginType === 'admin' ? 'admin' : 'EMP-001'} className="input text-sm py-1.5" value={loginU} onChange={e => setLoginU(e.target.value)} />
                       </div>
                       <div>
                         <label className="block text-xs font-semibold mb-1 text-gray-500">Password</label>
