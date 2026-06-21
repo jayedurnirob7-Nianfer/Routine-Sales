@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/auth';
-import { getRoster, getAssignment, saveEmployees, getEmployees, SHIFT_INFO, WEEKDAYS } from '@/lib/store';
+import { getRoster, getAssignment, saveEmployees, getEmployees, SHIFT_INFO, WEEKDAYS, invalidateCache } from '@/lib/store';
 import { Employee, RosterData, ShiftType, ShiftRequest } from '@/types';
 
 function Avatar({ emp, className = '' }: { emp: Employee, className?: string }) {
