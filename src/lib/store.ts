@@ -193,6 +193,7 @@ export async function getAdminCreds(): Promise<AdminCredentials> {
 
 // ✅ Magically encodes the image URL into the role column before saving!
 export async function saveEmployees(employees: Employee[]): Promise<void> {
+  if (memCache) { memCache = { ...memCache, employees }; lsSet(LS_KEY, memCache); }
   const payload = employees.map(e => {
     let encodedRole = e.role;
     if (e.profileImage) encodedRole += `|IMG:${e.profileImage}`;
@@ -201,20 +202,19 @@ export async function saveEmployees(employees: Employee[]): Promise<void> {
     return { ...e, role: encodedRole };
   });
   await apiPost('saveEmployees', { employees: payload });
-  if (memCache) { memCache = { ...memCache, employees }; lsSet(LS_KEY, memCache); }
 }
 
 export async function saveRoster(roster: RosterData): Promise<void> {
-  await apiPost('saveRoster', { roster });
   if (memCache) { memCache = { ...memCache, roster }; lsSet(LS_KEY, memCache); }
+  await apiPost('saveRoster', { roster });
 }
 export async function saveSiteSettings(settings: SiteSettings): Promise<void> {
-  await apiPost('saveSettings', { settings });
   if (memCache) { memCache = { ...memCache, settings }; lsSet(LS_KEY, memCache); }
+  await apiPost('saveSettings', { settings });
 }
 export async function saveAdminCreds(creds: AdminCredentials): Promise<void> {
-  await apiPost('saveAuth', { auth: creds });
   if (memCache) { memCache = { ...memCache, auth: creds }; lsSet(LS_KEY, memCache); }
+  await apiPost('saveAuth', { auth: creds });
 }
 
 export function getAssignment(roster: RosterData, employee: Employee, date: string): ShiftAssignment | undefined {
