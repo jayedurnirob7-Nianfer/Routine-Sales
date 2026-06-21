@@ -487,12 +487,7 @@ export default function DashboardPage() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
         <div>
           <h1 className="text-3xl font-black tracking-tight text-gray-900 dark:text-gray-100 flex items-center gap-3">
-            {siteSettings.logoImage ? (
-              <img src={siteSettings.logoImage} alt="Logo" className="w-10 h-10 object-contain" />
-            ) : (
-              <span className="text-4xl">{siteSettings.logoEmoji}</span>
-            )}
-            {siteSettings.siteName} <span className="text-sm font-bold bg-teal-100 text-teal-800 dark:bg-teal-900/50 dark:text-teal-400 px-2 py-0.5 rounded-full mt-1">v2.2</span>
+            Dashboard <span className="text-sm font-bold bg-teal-100 text-teal-800 dark:bg-teal-900/50 dark:text-teal-400 px-2 py-0.5 rounded-full mt-1">v2.2</span>
           </h1>
           <p className="text-gray-500 mt-2 font-medium">
             {new Date(today + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} — Today's Overview
