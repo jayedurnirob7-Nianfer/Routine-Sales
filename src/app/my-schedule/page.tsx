@@ -61,9 +61,16 @@ export default function MySchedulePage() {
   async function submitRequest() {
     if (!reqDate || !employeeUser) return;
     setSaving(true);
+    
+    // CRITICAL: Force fresh fetch to avoid overwriting Google Sheets with stale local cache!
+    invalidateCache();
     const emps = await getEmployees();
+    
     const empIdx = emps.findIndex(e => e.id === employeeUser.id);
-    if (empIdx === -1) return;
+    if (empIdx === -1) {
+      setSaving(false);
+      return;
+    }
 
     const newReqs = { ...emps[empIdx].requests };
     newReqs[reqDate] = {
@@ -92,7 +99,11 @@ export default function MySchedulePage() {
     }
     setSaving(true);
     setPassErr('');
+    
+    // CRITICAL: Force fresh fetch to avoid overwriting Google Sheets with stale local cache!
+    invalidateCache();
     const emps = await getEmployees();
+    
     const empIdx = emps.findIndex(e => e.id === employeeUser?.id);
     if (empIdx > -1) {
       emps[empIdx].password = newPass;
