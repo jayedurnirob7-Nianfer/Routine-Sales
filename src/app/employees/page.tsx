@@ -429,7 +429,7 @@ export default function EmployeesPage() {
         </div>
       </div>
 
-      {selected.requests && Object.values(selected.requests).filter(r => r.status !== 'pending').length > 0 && (
+      {isAdmin && selected.requests && Object.values(selected.requests).filter(r => r.status !== 'pending').length > 0 && (
         <div className="card p-6 border border-gray-100 dark:border-gray-800 shadow-sm mt-4">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2">
