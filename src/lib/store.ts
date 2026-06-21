@@ -126,7 +126,7 @@ async function fetchAll(): Promise<AllData> {
   
   fetchPromise = (async () => {
     try {
-      const res = await fetch(`${API_URL}?action=getAll`);
+      const res = await fetch(`${API_URL}?action=getAll&_t=${Date.now()}`, { cache: 'no-store' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       if (json.status !== 'ok') throw new Error(json.message || 'API error');
@@ -178,7 +178,7 @@ async function apiPost(action: string, payload: Record<string, unknown>): Promis
 export async function getEmployees(): Promise<Employee[]> { return (await getAll()).employees; }
 export async function getRoster(): Promise<RosterData> { return (await getAll()).roster; }
 export async function getArchiveRoster(year: number, month: number): Promise<RosterData> {
-  const res = await fetch(`${API_URL}?action=getArchive&year=${year}&month=${month}`);
+  const res = await fetch(`${API_URL}?action=getArchive&year=${year}&month=${month}&_t=${Date.now()}`, { cache: 'no-store' });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const json = await res.json() as any;
   if (json.status !== 'ok') throw new Error(json.message || 'API error');
