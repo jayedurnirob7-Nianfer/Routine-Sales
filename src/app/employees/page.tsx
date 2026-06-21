@@ -219,7 +219,7 @@ export default function EmployeesPage() {
     if (!loginModal) return;
     setSaving(true);
     setLoginErr('');
-    const ok = await loginAsEmployee(loginModal.emp.id, loginPass);
+    const ok = await loginAsEmployee(loginModal.emp.employeeId, loginPass);
     if (ok) {
       router.push('/my-schedule');
     } else {
