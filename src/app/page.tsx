@@ -39,12 +39,7 @@ export default function DashboardPage() {
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState<string | null>(null);
   const [popoverTarget, setPopoverTarget] = useState<PopoverTarget | null>(null);
-  const [empLoginId, setEmpLoginId] = useState('');
-  const [empLoginPass, setEmpLoginPass] = useState('');
-  const [empLoginErr, setEmpLoginErr] = useState('');
-  const [empLoginLoading, setEmpLoginLoading] = useState(false);
-  const [showEmpLogin, setShowEmpLogin] = useState(false);
-  const { loginAsEmployee, employeeUser } = useAuth();
+  const { employeeUser } = useAuth();
   const today = todayKey();
 
   const load = useCallback(async (forceRefresh = false) => {
@@ -132,18 +127,6 @@ export default function DashboardPage() {
       delete e.requests[req.date];
       setEmployees(freshEmps);
       await saveEmployees(freshEmps);
-    }
-  }
-
-  async function handleEmployeeLogin() {
-    setEmpLoginLoading(true);
-    setEmpLoginErr('');
-    const ok = await loginAsEmployee(empLoginId, empLoginPass);
-    if (ok) {
-      router.push('/my-schedule');
-    } else {
-      setEmpLoginErr('Invalid ID or Password.');
-      setEmpLoginLoading(false);
     }
   }
 
@@ -531,46 +514,6 @@ export default function DashboardPage() {
           ↻ Refresh
         </button>
       </div>
-
-      {!isAdmin && !employeeUser && (
-        <div className="mb-8 max-w-md mx-auto text-center">
-          {!showEmpLogin ? (
-            <button 
-              className="btn-primary w-full py-3 shadow-sm flex items-center justify-center gap-2 hover:shadow-md transition-all duration-300"
-              onClick={() => setShowEmpLogin(true)}
-            >
-              <span className="text-xl">👋</span> Employee Login
-            </button>
-          ) : (
-            <div className="card p-6 md:p-8 bg-gradient-to-r from-teal-50 to-emerald-50 dark:from-teal-900/20 dark:to-emerald-900/20 border-teal-100 dark:border-teal-900/50 shadow-sm animate-in fade-in slide-in-from-top-4 duration-300 relative text-left">
-              <button 
-                className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors"
-                onClick={() => setShowEmpLogin(false)}
-              >
-                ✕
-              </button>
-              <h2 className="text-2xl font-bold text-center mb-2 flex items-center justify-center gap-2">
-                <span className="text-3xl">👋</span> Employee Login
-              </h2>
-              <p className="text-gray-500 text-center text-sm mb-6">Enter your Employee ID to access your schedule and submit requests.</p>
-              {empLoginErr && <div className="bg-red-50 text-red-600 text-sm p-3 rounded-xl mb-4 border border-red-100 dark:border-red-900/30 font-medium text-center">{empLoginErr}</div>}
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-semibold mb-1.5 text-gray-700 dark:text-gray-300">Employee ID</label>
-                  <input type="text" className="input bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800" placeholder="e.g. EMP-001" value={empLoginId} onChange={e => setEmpLoginId(e.target.value)} />
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold mb-1.5 text-gray-700 dark:text-gray-300">Password</label>
-                  <input type="password" className="input bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800" placeholder="Default is 1234" value={empLoginPass} onChange={e => setEmpLoginPass(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleEmployeeLogin()} />
-                </div>
-                <button className="btn-primary w-full shadow-md py-2.5 mt-2 text-base" onClick={handleEmployeeLogin} disabled={empLoginLoading}>
-                  {empLoginLoading ? 'Authenticating...' : 'Access My Schedule'}
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
 
       {isAdmin && allPendingRequests.length > 0 && (
         <div className="card p-4 border-yellow-300 bg-yellow-50 dark:bg-yellow-900/20 dark:border-yellow-700">

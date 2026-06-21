@@ -45,9 +45,44 @@ export default function Nav() {
     allLinks = links; 
   }
 
+  const [showLoginPop, setShowLoginPop] = useState(false);
+  const [loginU, setLoginU] = useState('');
+  const [loginP, setLoginP] = useState('');
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [loginErr, setLoginErr] = useState('');
+  const { loginAsEmployee, login } = useAuth(); // getting login functions
+
+  useEffect(() => {
+    setShowLoginPop(false);
+    setLoginU('');
+    setLoginP('');
+    setLoginErr('');
+  }, [pathname]);
+
+  const isEmployeePage = pathname === '/employees';
+
+  async function handleLogin() {
+    setLoginLoading(true);
+    setLoginErr('');
+    let ok = false;
+    if (isEmployeePage) {
+      ok = await login(loginU, loginP);
+    } else {
+      ok = await loginAsEmployee(loginU, loginP);
+    }
+    
+    if (ok) {
+      setShowLoginPop(false);
+      if (!isEmployeePage) router.push('/my-schedule');
+    } else {
+      setLoginErr('Invalid credentials');
+      setLoginLoading(false);
+    }
+  }
+
   return (
-    <nav className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 sticky top-0 z-40 shadow-sm">
-      <div className="max-w-7xl mx-auto px-4 flex items-center justify-between h-14">
+    <nav className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 sticky top-0 z-50 shadow-sm">
+      <div className="max-w-7xl mx-auto px-4 flex items-center justify-between h-14 relative">
         <Link href="/" className="font-bold text-teal-600 text-lg tracking-tight flex items-center gap-2">
           {settings.logoImage
             ? <img src={settings.logoImage} alt="logo" className="w-7 h-7 rounded object-cover" />
@@ -70,9 +105,45 @@ export default function Nav() {
 
         <div className="flex items-center gap-2">
           <button onClick={toggleDark} className="btn-ghost text-lg" title="Toggle theme">{dark ? '☀️' : '🌙'}</button>
-          {isAdmin || employeeUser
-            ? <button onClick={() => { logout(); router.push('/'); }} className="text-sm text-red-500 btn-ghost">Sign Out</button>
-            : null}
+          
+          {isAdmin || employeeUser ? (
+            <button onClick={() => { logout(); router.push('/'); }} className="text-sm text-red-500 btn-ghost">Sign Out</button>
+          ) : (
+            <div className="relative">
+              <button 
+                onClick={() => setShowLoginPop(!showLoginPop)} 
+                className="btn-primary text-sm px-4 py-1.5 shadow-sm transition-transform active:scale-95"
+              >
+                {isEmployeePage ? 'Admin Login' : 'Employee Login'}
+              </button>
+              
+              {showLoginPop && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowLoginPop(false)}></div>
+                  <div className="absolute right-0 top-full mt-2 w-72 card p-5 shadow-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 z-50 animate-in fade-in slide-in-from-top-2 duration-200 origin-top-right">
+                    <h3 className="font-bold text-base mb-3 flex items-center gap-2">
+                      {isEmployeePage ? <span>🔐 Admin Login</span> : <span>👋 Employee Login</span>}
+                    </h3>
+                    {loginErr && <div className="text-red-500 text-xs mb-3 bg-red-50 dark:bg-red-900/20 p-2 rounded border border-red-100 dark:border-red-900/30">{loginErr}</div>}
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-xs font-semibold mb-1 text-gray-500">{isEmployeePage ? 'Username' : 'Employee ID'}</label>
+                        <input type="text" placeholder={isEmployeePage ? 'admin' : 'EMP-001'} className="input text-sm py-1.5" value={loginU} onChange={e => setLoginU(e.target.value)} />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold mb-1 text-gray-500">Password</label>
+                        <input type="password" placeholder="••••••••" className="input text-sm py-1.5" value={loginP} onChange={e => setLoginP(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleLogin()} />
+                      </div>
+                      <button className="btn-primary w-full text-sm py-2 mt-1 shadow-sm" onClick={handleLogin} disabled={loginLoading}>
+                        {loginLoading ? 'Authenticating...' : 'Sign In'}
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
           <button className="md:hidden btn-ghost" onClick={() => setOpen(!open)}>☰</button>
         </div>
       </div>
