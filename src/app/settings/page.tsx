@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/auth';
 import { useSettings } from '@/lib/settings';
 import { useRouter } from 'next/navigation';
@@ -27,7 +27,13 @@ export default function SettingsPage() {
   const [userPass, setUserPass]   = useState('');
   const [userMsg, setUserMsg]     = useState('');
 
-  if (!isAdmin) { router.push('/'); return null; }
+  useEffect(() => {
+    if (!isAdmin) {
+      router.push('/');
+    }
+  }, [isAdmin, router]);
+
+  if (!isAdmin) return null;
 
   async function saveSite() {
     if (!siteName.trim()) { setSiteMsg('Site name cannot be empty.'); return; }
