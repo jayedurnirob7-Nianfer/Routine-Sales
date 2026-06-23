@@ -124,7 +124,7 @@ export default function IssuesPage() {
       
       if (req.type === 'shift') {
         if (req.reason && req.reason.startsWith('From:')) {
-          reasonStr = `${req.reason} -> To: ${SHIFT_INFO[req.requestedShift as ShiftType]?.label || req.requestedShift}`;
+          reasonStr = `${req.reason} -> To: ${SHIFT_INFO[req.requestedShift as keyof typeof SHIFT_INFO]?.label || req.requestedShift}`;
         } else {
           let currentAssignment = getAssignment(roster, emp, req.date);
           let fromShiftStr = currentAssignment?.shift || emp.defaultShift || 'unknown';
@@ -133,12 +133,12 @@ export default function IssuesPage() {
              fromShiftStr = emp.defaultShift || 'unknown';
           }
 
-          if (SHIFT_INFO[fromShiftStr as ShiftType]) {
-            fromShiftStr = SHIFT_INFO[fromShiftStr as ShiftType].label;
+          if (SHIFT_INFO[fromShiftStr as keyof typeof SHIFT_INFO]) {
+            fromShiftStr = SHIFT_INFO[fromShiftStr as keyof typeof SHIFT_INFO].label;
           }
           let toShiftStr = req.requestedShift || 'unknown';
-          if (SHIFT_INFO[toShiftStr as ShiftType]) {
-            toShiftStr = SHIFT_INFO[toShiftStr as ShiftType].label;
+          if (SHIFT_INFO[toShiftStr as keyof typeof SHIFT_INFO]) {
+            toShiftStr = SHIFT_INFO[toShiftStr as keyof typeof SHIFT_INFO].label;
           }
           reasonStr = `From: ${fromShiftStr} -> To: ${toShiftStr}`;
         }
