@@ -6,6 +6,7 @@ import { useAuth } from '@/lib/auth';
 import ShiftBadge from '@/components/shared/ShiftBadge';
 import AssignShiftModal from '@/components/shared/AssignShiftModal';
 import { AlertDialog } from '@/components/shared/Dialogs';
+import DailyShiftBreakdownModal from '@/components/roster/DailyShiftBreakdownModal';
 
 const SHIFTS: ShiftType[] = ['morning', 'evening', 'night', 'off'];
 
@@ -22,6 +23,9 @@ export default function RosterPage() {
   const [archiveRoster, setArchiveRoster] = useState<RosterData | null>(null);
   const [loadingArchive, setLoadingArchive] = useState(false);
   const [alertConfig, setAlertConfig] = useState<{ open: boolean; title?: string; message: string; type?: 'error'|'warning' }>({ open: false, message: '' });
+  
+  const [viewMode, setViewMode] = useState<'table' | 'calendar'>('table');
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState<string | null>(null);
 
   const monthOptions = [{ value: 'current', label: 'Current Roster' }];
   const d = new Date();
@@ -80,6 +84,65 @@ export default function RosterPage() {
   const filteredEmployees = employees
     .filter(e => search === '' || e.name.toLowerCase().includes(search.toLowerCase()) || e.employeeId.toLowerCase().includes(search.toLowerCase()));
 
+  // Calendar rendering logic
+  const renderCalendar = () => {
+    let year, month;
+    if (isArchive) {
+      [year, month] = archiveMonth.split('-').map(Number);
+    } else {
+      const td = new Date();
+      year = td.getFullYear();
+      month = td.getMonth() + 1;
+    }
+    
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const firstDay = new Date(year, month - 1, 1).getDay(); // 0 = Sunday
+    
+    const blanks = Array.from({ length: firstDay }, (_, i) => i);
+    const monthDays = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+
+    return (
+      <div className="card p-6 border border-gray-100 dark:border-gray-800 shadow-sm mt-4 bg-white dark:bg-gray-900">
+        <div className="grid grid-cols-7 gap-2">
+          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+            <div key={d} className="text-center font-bold text-gray-500 text-sm py-2 uppercase tracking-wider">{d}</div>
+          ))}
+          {blanks.map(b => <div key={`b-${b}`} className="p-2" />)}
+          {monthDays.map(d => {
+            const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+            const isToday = dateStr === todayKey();
+            // Count total assignments for this day
+            let totalAssigned = 0;
+            employees.forEach(emp => {
+              const a = getAssignment(activeRoster, emp, dateStr);
+              if (a && a.shift && !['off', 'leave'].includes(a.shift)) {
+                totalAssigned++;
+              }
+            });
+
+            return (
+              <button 
+                key={d} 
+                onClick={() => setSelectedCalendarDate(dateStr)}
+                className={`min-h-[80px] p-2 flex flex-col items-center justify-center rounded-xl border transition-all hover:shadow-md
+                  ${isToday ? 'bg-teal-50 dark:bg-teal-900/10 border-teal-200 dark:border-teal-800/50 shadow-sm ring-1 ring-teal-500/20' : 'bg-white dark:bg-gray-800 border-gray-100 dark:border-gray-700 hover:border-teal-300'}`}
+              >
+                <div className={`text-lg font-bold ${isToday ? 'text-teal-600 dark:text-teal-400' : 'text-gray-700 dark:text-gray-300'}`}>{d}</div>
+                {totalAssigned > 0 ? (
+                  <div className="mt-1 text-[10px] font-semibold bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-300 px-2 py-0.5 rounded-full">
+                    {totalAssigned} Shifts
+                  </div>
+                ) : (
+                   <div className="mt-1 text-[10px] text-gray-300 dark:text-gray-600">—</div>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -108,6 +171,16 @@ export default function RosterPage() {
     <div className="space-y-4">
       <div className="flex flex-col md:flex-row items-center justify-between gap-4">
         <h1 className="text-2xl font-bold w-full md:w-auto text-center md:text-left shrink-0">Roster</h1>
+        <div className="flex bg-gray-100 dark:bg-gray-800 p-1 rounded-xl shrink-0">
+          <button 
+            className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${viewMode === 'table' ? 'bg-white dark:bg-gray-700 shadow-sm text-teal-600' : 'text-gray-500'}`}
+            onClick={() => setViewMode('table')}
+          >Matrix View</button>
+          <button 
+            className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${viewMode === 'calendar' ? 'bg-white dark:bg-gray-700 shadow-sm text-teal-600' : 'text-gray-500'}`}
+            onClick={() => setViewMode('calendar')}
+          >Calendar View</button>
+        </div>
         <div className="flex flex-wrap items-center justify-center gap-2 flex-1 w-full">
           <input className="input w-full max-w-xs md:w-44" placeholder="Search employee…" value={search} onChange={e => setSearch(e.target.value)} />
           <select 
@@ -132,9 +205,9 @@ export default function RosterPage() {
           </div>
           <button className="btn-ghost text-xs border border-gray-200 dark:border-gray-700 mt-2 sm:mt-0" onClick={() => load(true)} title="Refresh">↻ Refresh</button>
         </div>
-        <div className="hidden md:block w-[100px] shrink-0"></div>
       </div>
 
+      {viewMode === 'calendar' ? renderCalendar() : (
       <div className="card overflow-auto max-h-[70vh]">
         <table className="min-w-full text-xs">
           <thead className="sticky top-0 z-20">
@@ -198,6 +271,7 @@ export default function RosterPage() {
         {loadingArchive && <div className="p-10 text-center text-gray-400">Loading archived records...</div>}
         {!loadingArchive && filteredEmployees.length === 0 && <p className="text-center py-10 text-gray-400 text-sm">No employees found.</p>}
       </div>
+      )}
       <div className="flex flex-wrap gap-3">
         {SHIFTS.map(s => {
           const info = SHIFT_INFO[s];
@@ -226,6 +300,15 @@ export default function RosterPage() {
             }
           }}
           onClose={() => setAssignTarget(null)}
+        />
+      )}
+
+      {selectedCalendarDate && (
+        <DailyShiftBreakdownModal
+          date={selectedCalendarDate}
+          roster={activeRoster}
+          employees={employees}
+          onClose={() => setSelectedCalendarDate(null)}
         />
       )}
 
