@@ -132,6 +132,51 @@ export default function DashboardPage() {
 
   const empMap = Object.fromEntries(employees.map(e => [e.id, e]));
 
+  function downloadRequestsCSV() {
+    if (allPendingRequests.length === 0) return;
+
+    const headers = ['Employee ID', 'Name', 'Date', 'Type', 'Details/Reason'];
+    const rows = allPendingRequests.map(({ emp, req }) => {
+      let typeStr = '';
+      let detailsStr = '';
+
+      if (req.type === 'issue') {
+        typeStr = 'Reported Issue';
+        detailsStr = req.reason || '';
+      } else if (req.type === 'leave') {
+        typeStr = 'Leave Request';
+        detailsStr = req.reason || '';
+      } else if (req.type === 'off') {
+        typeStr = 'Off Day Request';
+      } else {
+        typeStr = 'Shift Change Request';
+        detailsStr = `Requested Shift: ${req.requestedShift}`;
+      }
+
+      // Escape quotes and commas for CSV
+      const escapeCsv = (str: string) => `"${str.replace(/"/g, '""')}"`;
+      
+      return [
+        escapeCsv(emp.employeeId),
+        escapeCsv(emp.name),
+        escapeCsv(req.date),
+        escapeCsv(typeStr),
+        escapeCsv(detailsStr)
+      ].join(',');
+    });
+
+    const csvContent = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `pending_requests_${today}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+
   useEffect(() => {
     function handleClickOutside() {
       setPopoverTarget(null);
@@ -517,9 +562,17 @@ export default function DashboardPage() {
 
       {isAdmin && allPendingRequests.length > 0 && (
         <div className="card p-4 border-yellow-300 bg-yellow-50 dark:bg-yellow-900/20 dark:border-yellow-700">
-          <h2 className="font-bold text-yellow-800 dark:text-yellow-400 mb-3 flex items-center gap-2">
-            <span>⚠️</span> Pending Requests ({allPendingRequests.length})
-          </h2>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-bold text-yellow-800 dark:text-yellow-400 flex items-center gap-2">
+              <span>⚠️</span> Pending Requests ({allPendingRequests.length})
+            </h2>
+            <button 
+              onClick={downloadRequestsCSV}
+              className="px-3 py-1 bg-white dark:bg-gray-800 text-yellow-700 dark:text-yellow-400 text-xs font-bold rounded shadow-sm border border-yellow-200 dark:border-yellow-700 hover:bg-yellow-100 transition-colors"
+            >
+              📥 Export to CSV
+            </button>
+          </div>
           <div className="space-y-2">
             {allPendingRequests.map(({ emp, req }) => (
               <div key={`${emp.id}-${req.date}`} className={`bg-white dark:bg-gray-800 p-3 rounded-xl flex items-center justify-between border ${req.type === 'issue' ? 'border-red-200 dark:border-red-900/50' : 'border-yellow-200 dark:border-yellow-800/50'}`}>
