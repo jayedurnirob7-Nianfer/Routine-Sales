@@ -4,6 +4,7 @@ import { getEmployees, getRoster, saveRoster, saveEmployees, SHIFT_INFO, todayKe
 import { Employee, RosterData, ShiftType, ShiftRequest } from '@/types';
 import { useAuth } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 
 const TODAY_SHIFTS: ShiftType[] = ['morning', 'evening', 'night'];
 
@@ -43,9 +44,11 @@ export default function DashboardPage() {
   const today = todayKey();
 
   const load = useCallback(async (forceRefresh = false) => {
-    setLoading(true);
+    if (forceRefresh) {
+      setLoading(true);
+      invalidateCache();
+    }
     setError(null);
-    if (forceRefresh) invalidateCache();
     try {
       const [emps, ros] = await Promise.all([getEmployees(), getRoster()]);
       setEmployees(emps);
@@ -70,112 +73,21 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => { 
-    load(true); // Always fetch fresh data on initial dashboard mount
+    // On mount, load instantly from cache without forcing a fresh fetch or showing a spinner
+    load(false); 
     
     // Poll for new requests silently every 30 seconds
     const interval = setInterval(loadBackground, 30000);
     return () => clearInterval(interval);
   }, [load, loadBackground]);
 
-  const allPendingRequests = employees.flatMap(emp => {
+  const pendingIssuesCount = employees.flatMap(emp => {
     if (!emp.requests) return [];
-    return Object.values(emp.requests).filter(r => r.status === 'pending').map(r => ({ emp, req: r }));
-  });
-
-
-  async function handleApprove(emp: Employee, req: ShiftRequest) {
-    const isLeave = req.type === 'leave';
-    
-    if (req.type !== 'issue') {
-      const newRoster = await upsertAssignment(roster, req.date, {
-        employeeId: emp.id,
-        shift: (req.type === 'off' || isLeave) ? 'off' : (req.requestedShift || 'morning'),
-        effectiveFrom: req.date,
-        effectiveTo: req.date,
-        isOffDayOverride: true,
-        reason: isLeave ? `LEAVE|${req.date}|${req.date}|${req.reason || 'Leave'}` : `Approved Request: ${req.type}`,
-      });
-      setRoster(newRoster);
-    }
-
-    invalidateCache();
-    const freshEmps = await getEmployees();
-    const e = freshEmps.find(x => x.id === emp.id);
-    if (e && e.requests) {
-      e.requests[req.date] = { ...e.requests[req.date], status: 'approved' };
-      setEmployees(freshEmps);
-      await saveEmployees(freshEmps);
-    }
-  }
-
-  async function handleReject(emp: Employee, req: ShiftRequest) {
-    invalidateCache();
-    const freshEmps = await getEmployees();
-    const e = freshEmps.find(x => x.id === emp.id);
-    if (e && e.requests) {
-      e.requests[req.date] = { ...e.requests[req.date], status: 'rejected' };
-      setEmployees(freshEmps);
-      await saveEmployees(freshEmps);
-    }
-  }
-
-  async function handleDeleteRequest(emp: Employee, req: ShiftRequest) {
-    invalidateCache();
-    const freshEmps = await getEmployees();
-    const e = freshEmps.find(x => x.id === emp.id);
-    if (e && e.requests) {
-      delete e.requests[req.date];
-      setEmployees(freshEmps);
-      await saveEmployees(freshEmps);
-    }
-  }
+    return Object.values(emp.requests).filter(r => r.status === 'pending');
+  }).length;
 
   const empMap = Object.fromEntries(employees.map(e => [e.id, e]));
 
-  function downloadRequestsCSV() {
-    if (allPendingRequests.length === 0) return;
-
-    const headers = ['Employee ID', 'Name', 'Date', 'Type', 'Details/Reason'];
-    const rows = allPendingRequests.map(({ emp, req }) => {
-      let typeStr = '';
-      let detailsStr = '';
-
-      if (req.type === 'issue') {
-        typeStr = 'Reported Issue';
-        detailsStr = req.reason || '';
-      } else if (req.type === 'leave') {
-        typeStr = 'Leave Request';
-        detailsStr = req.reason || '';
-      } else if (req.type === 'off') {
-        typeStr = 'Off Day Request';
-      } else {
-        typeStr = 'Shift Change Request';
-        detailsStr = `Requested Shift: ${req.requestedShift}`;
-      }
-
-      // Escape quotes and commas for CSV
-      const escapeCsv = (str: string) => `"${str.replace(/"/g, '""')}"`;
-      
-      return [
-        escapeCsv(emp.employeeId),
-        escapeCsv(emp.name),
-        escapeCsv(req.date),
-        escapeCsv(typeStr),
-        escapeCsv(detailsStr)
-      ].join(',');
-    });
-
-    const csvContent = [headers.join(','), ...rows].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `pending_requests_${today}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  }
 
   useEffect(() => {
     function handleClickOutside() {
@@ -541,83 +453,27 @@ export default function DashboardPage() {
     );
   }
 
+
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-gray-200 dark:border-gray-800 pb-4">
         <div>
-          <h1 className="text-3xl font-black tracking-tight text-gray-900 dark:text-gray-100 flex items-center gap-3">
-            Dashboard <span className="text-sm font-bold bg-teal-100 text-teal-800 dark:bg-teal-900/50 dark:text-teal-400 px-2 py-0.5 rounded-full mt-1">v2.2</span>
+          <h1 className="text-3xl font-black tracking-tight text-gray-900 dark:text-white flex items-center gap-3">
+            Dashboard
+            <span className="text-xs font-bold bg-teal-500/10 text-teal-500 px-2.5 py-1 rounded-full tracking-wide">v2.2</span>
           </h1>
-          <p className="text-gray-500 mt-2 font-medium">
-            {new Date(today + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} — Today's Overview
-          </p>
+          <p className="text-gray-500 dark:text-gray-400 mt-1 font-medium">{new Date(today + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} — Today's Overview</p>
         </div>
-        <button
-          className="btn-ghost text-xs border border-gray-200 dark:border-gray-700"
-          onClick={() => load(true)}
-          title="Refresh from Google Sheets">
-          ↻ Refresh
-        </button>
+        <div className="flex items-center gap-3">
+          {isAdmin && pendingIssuesCount > 0 && (
+            <Link href="/issues" className="btn-primary text-xs flex items-center gap-2 animate-pulse shadow-[0_0_15px_rgba(239,68,68,0.5)] bg-red-500 hover:bg-red-600 border-none text-white font-bold px-4 py-2 rounded-xl transition-all hover:scale-105 active:scale-95">
+              <span className="text-lg">⚠️</span>
+              {pendingIssuesCount} Pending {pendingIssuesCount === 1 ? 'Request' : 'Requests'}
+            </Link>
+          )}
+          <button className="btn-ghost text-xs border border-gray-200 dark:border-gray-700 font-medium" onClick={() => load(true)} title="Refresh">↻ Refresh</button>
+        </div>
       </div>
-
-      {isAdmin && allPendingRequests.length > 0 && (
-        <div className="card p-4 border-yellow-300 bg-yellow-50 dark:bg-yellow-900/20 dark:border-yellow-700">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="font-bold text-yellow-800 dark:text-yellow-400 flex items-center gap-2">
-              <span>⚠️</span> Pending Requests ({allPendingRequests.length})
-            </h2>
-            <button 
-              onClick={downloadRequestsCSV}
-              className="px-3 py-1 bg-white dark:bg-gray-800 text-yellow-700 dark:text-yellow-400 text-xs font-bold rounded shadow-sm border border-yellow-200 dark:border-yellow-700 hover:bg-yellow-100 transition-colors"
-            >
-              📥 Export to CSV
-            </button>
-          </div>
-          <div className="space-y-2">
-            {allPendingRequests.map(({ emp, req }) => (
-              <div key={`${emp.id}-${req.date}`} className={`bg-white dark:bg-gray-800 p-3 rounded-xl flex items-center justify-between border ${req.type === 'issue' ? 'border-red-200 dark:border-red-900/50' : 'border-yellow-200 dark:border-yellow-800/50'}`}>
-                <div className="flex items-center gap-3">
-                  <Avatar emp={emp} className={`w-8 h-8 rounded-full flex items-center justify-center text-xs ${req.type === 'issue' ? 'bg-red-100 text-red-600' : 'bg-yellow-100 text-yellow-600'}`} />
-                  <div>
-                    <div className="text-sm font-semibold">{emp.name}</div>
-                    <div className="text-xs text-gray-500">
-                      {req.type === 'issue' ? (
-                        <div className="flex flex-col gap-1.5 mt-1">
-                          <div className="text-red-800 dark:text-red-400 font-medium">Reported Issue for <strong>{req.date}</strong></div>
-                          {req.reason && (
-                            <details className="group">
-                              <summary className="text-xs font-bold text-red-600 hover:text-red-800 dark:text-red-500 dark:hover:text-red-300 cursor-pointer select-none transition-colors">
-                                Read Full Issue...
-                              </summary>
-                              <div className="mt-2 p-3 bg-red-50/50 dark:bg-red-900/10 border border-red-100 dark:border-red-900/30 rounded-lg text-gray-700 dark:text-gray-300 italic whitespace-pre-wrap leading-relaxed shadow-inner">
-                                {req.reason}
-                              </div>
-                            </details>
-                          )}
-                        </div>
-                      ) : (
-                        <>Requested <strong>{req.type === 'leave' ? `Leave${req.reason ? ` (${req.reason})` : ''}` : req.type === 'off' ? 'Off Day' : (SHIFT_INFO[req.requestedShift!]?.label || '') + ' Shift'}</strong> for <strong>{req.date}</strong></>
-                      )}
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button className="btn-primary py-1 px-3 text-xs" onClick={() => handleApprove(emp, req)}>
-                    {req.type === 'issue' ? '✓ Mark Resolved' : 'Approve'}
-                  </button>
-                  {req.type !== 'issue' && (
-                    <button className="btn-secondary py-1 px-3 text-xs text-red-500 border-red-200 hover:bg-red-50" onClick={() => handleReject(emp, req)}>Reject</button>
-                  )}
-                  <button className="btn-ghost py-1 px-2 text-xs text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg" onClick={() => handleDeleteRequest(emp, req)} title="Delete Request">
-                    🗑
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
 
       <div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

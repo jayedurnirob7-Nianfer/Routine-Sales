@@ -33,17 +33,6 @@ export default function Nav() {
     localStorage.setItem('pxl_dark', next ? '1' : '0');
   }
 
-  let allLinks: {href: string, label: string}[] = [];
-  if (isAdmin) {
-    allLinks = [...links, { href: '/settings', label: 'Settings' }];
-  } else if (employeeUser) {
-    allLinks = [{ href: '/my-schedule', label: 'My Schedule' }];
-  } else {
-    // If neither logged in, maybe show Dashboard if it's public? 
-    // The prompt didn't say Dashboard is private. Actually it is private now? 
-    // Usually Dashboard was public for everyone to view. We'll leave it as `links`.
-    allLinks = links; 
-  }
 
   const [showLoginPop, setShowLoginPop] = useState(false);
   const [loginType, setLoginType] = useState<'employee' | 'admin'>('employee');
@@ -52,6 +41,7 @@ export default function Nav() {
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginErr, setLoginErr] = useState('');
   const { loginAsEmployee, login } = useAuth(); // getting login functions
+  const [pendingIssueCount, setPendingIssueCount] = useState(0);
 
   useEffect(() => {
     setShowLoginPop(false);
@@ -59,6 +49,37 @@ export default function Nav() {
     setLoginP('');
     setLoginErr('');
   }, [pathname]);
+
+  // Fetch pending requests count for the notification dot
+  useEffect(() => {
+    if (isAdmin) {
+      import('@/lib/store').then(({ getEmployees }) => {
+        getEmployees().then(emps => {
+          let count = 0;
+          emps.forEach(emp => {
+            if (emp.requests) {
+              Object.values(emp.requests).forEach(req => {
+                if (req.status === 'pending') count++;
+              });
+            }
+          });
+          setPendingIssueCount(count);
+        }).catch(() => {});
+      });
+    }
+  }, [isAdmin, pathname]); // Re-check when pathname changes (e.g. returning to dashboard)
+
+  let allLinks: {href: string, label: string}[] = [];
+  if (isAdmin) {
+    allLinks = [...links, { href: '/issues', label: 'Requests & Issues' }, { href: '/settings', label: 'Settings' }];
+  } else if (employeeUser) {
+    allLinks = [{ href: '/my-schedule', label: 'My Schedule' }];
+  } else {
+    // If neither logged in, maybe show Dashboard if it's public? 
+    // The prompt didn't say Dashboard is private. Actually it is private now? 
+    // Usually Dashboard was public for everyone to view. We'll leave it as `links`.
+    allLinks = links; 
+  }
 
   async function handleLogin() {
     setLoginLoading(true);
@@ -80,6 +101,11 @@ export default function Nav() {
     }
   }
 
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   return (
     <nav className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 sticky top-0 z-50 shadow-sm">
       <div className="max-w-[1600px] mx-auto px-4 flex items-center justify-between h-14 relative">
@@ -92,21 +118,21 @@ export default function Nav() {
         </Link>
 
         <div className="hidden md:flex items-center gap-1">
-          {allLinks.map(l => (
+          {mounted && allLinks.map(l => (
             <Link key={l.href} href={l.href}
-              className={`px-3 py-1.5 rounded-xl text-sm font-medium transition-colors
-                ${pathname === l.href
-                  ? 'bg-teal-50 dark:bg-teal-900/40 text-teal-600 dark:text-teal-400'
-                  : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'}`}>
+              className={`px-3 py-1.5 rounded-xl text-sm font-medium transition-colors relative flex items-center gap-1 ${pathname === l.href ? 'bg-teal-50 dark:bg-teal-900/40 text-teal-600 dark:text-teal-400' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'}`}>
               {l.label}
+              {l.href === '/issues' && pendingIssueCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.6)] border border-white dark:border-gray-900"></span>
+              )}
             </Link>
           ))}
         </div>
 
         <div className="flex items-center gap-2">
-          <button onClick={toggleDark} className="btn-ghost text-lg" title="Toggle theme">{dark ? '☀️' : '🌙'}</button>
+          {mounted && <button onClick={toggleDark} className="btn-ghost text-lg" title="Toggle theme">{dark ? '☀️' : '🌙'}</button>}
           
-          {isAdmin || employeeUser ? (
+          {mounted && (isAdmin || employeeUser ? (
             <button onClick={() => { logout(); router.push('/'); }} className="text-sm text-red-500 btn-ghost">Sign Out</button>
           ) : (
             <div className="relative">
@@ -161,7 +187,7 @@ export default function Nav() {
                 </>
               )}
             </div>
-          )}
+          ))}
 
           <button className="md:hidden btn-ghost" onClick={() => setOpen(!open)}>☰</button>
         </div>

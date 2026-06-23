@@ -72,12 +72,24 @@ export default function MySchedulePage() {
       return;
     }
 
+    let reasonToSave = undefined;
+    if (reqType === 'leave' || reqType === 'issue') {
+      reasonToSave = reqReason;
+    } else if (reqType === 'shift') {
+      const currentAssigned = getAssignment(roster, employeeUser, reqDate);
+      let oldShiftStr = currentAssigned?.shift || employeeUser.defaultShift || 'unknown';
+      if (SHIFT_INFO[oldShiftStr as ShiftType]) {
+        oldShiftStr = SHIFT_INFO[oldShiftStr as ShiftType].label;
+      }
+      reasonToSave = `From: ${oldShiftStr}`;
+    }
+
     const newReqs = { ...emps[empIdx].requests };
     newReqs[reqDate] = {
       date: reqDate,
       type: reqType,
       requestedShift: reqType === 'shift' ? reqShift : undefined,
-      reason: (reqType === 'leave' || reqType === 'issue') ? reqReason : undefined,
+      reason: reasonToSave,
       status: 'pending',
       createdAt: new Date().toISOString()
     };
