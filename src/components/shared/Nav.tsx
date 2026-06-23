@@ -82,7 +82,7 @@ export default function Nav() {
 
   return (
     <nav className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 sticky top-0 z-50 shadow-sm">
-      <div className="max-w-7xl mx-auto px-4 flex items-center justify-between h-14 relative">
+      <div className="max-w-[1600px] mx-auto px-4 flex items-center justify-between h-14 relative">
         <Link href="/" className="font-bold text-teal-600 text-lg tracking-tight flex items-center gap-2">
           {settings.logoImage
             ? <img src={settings.logoImage} alt="logo" className="w-7 h-7 rounded object-cover" />
