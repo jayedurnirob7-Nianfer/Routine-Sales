@@ -25,6 +25,7 @@ export default function AssignShiftModal({ employee, date, currentShift, roster,
   const [toDate, setTo]       = useState(date);
   const [reason, setReason]   = useState('');
   const [offMode, setOffMode] = useState<OffMode>(null);
+  const [offGroup, setOffGroup] = useState<'auto' | ShiftType>('auto');
   const [saving, setSaving]   = useState(false);
   
   const [confirmConfig, setConfirmConfig] = useState<{ open: boolean; title: string; message: string; isDestructive?: boolean; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
@@ -42,6 +43,7 @@ export default function AssignShiftModal({ employee, date, currentShift, roster,
     setSaving(true);
     try {
       if (shift === 'off') {
+        const resolvedReason = offGroup !== 'auto' ? `OFF|${offGroup}` : reason;
         if (offMode === 'weekly') {
           const updatedEmp: Employee = {
             ...employee,
@@ -49,10 +51,10 @@ export default function AssignShiftModal({ employee, date, currentShift, roster,
             defaultShift: employee.defaultShift ?? 'morning',
           };
           const [fy, fm, fd] = fromDate.split('-').map(Number);
-          const updated = await applyWeeklyOffDay(roster, updatedEmp, selectedWeekday, fy, fm, fd);
+          const updated = await applyWeeklyOffDay(roster, updatedEmp, selectedWeekday, fy, fm, fd, resolvedReason);
           onSave(updated, updatedEmp);
         } else if (offMode === 'single') {
-          const updated = await overrideSingleDay(roster, employee, fromDate, 'off', reason);
+          const updated = await overrideSingleDay(roster, employee, fromDate, 'off', resolvedReason);
           onSave(updated);
         }
       } else {
@@ -183,6 +185,19 @@ export default function AssignShiftModal({ employee, date, currentShift, roster,
                 <div className="text-xs text-gray-500 mt-0.5">Change just this one day</div>
               </button>
             </div>
+            
+            {(offMode === 'weekly' || offMode === 'single') && (
+              <div className="bg-gray-50 dark:bg-gray-800 p-3 rounded-xl border border-gray-100 dark:border-gray-700">
+                <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">Target Shift Group</label>
+                <select className="input text-sm py-1.5 w-full" value={offGroup} onChange={e => setOffGroup(e.target.value as any)}>
+                  <option value="auto">Auto (Detect from past 7 days)</option>
+                  <option value="morning">Morning Shift</option>
+                  <option value="evening">Evening Shift</option>
+                  <option value="night">Night Shift</option>
+                </select>
+                <p className="text-[10px] text-gray-400 mt-1">Forces this off-day to appear under a specific shift in the Dashboard.</p>
+              </div>
+            )}
 
             {offMode === 'weekly' && (
               <div className="space-y-3">

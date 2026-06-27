@@ -239,7 +239,7 @@ export async function upsertAssignment(roster: RosterData, date: string, assignm
 }
 
 export async function applyWeeklyOffDay(
-  roster: RosterData, employee: Employee, offWeekday: number, year: number, month: number, startDay = 1
+  roster: RosterData, employee: Employee, offWeekday: number, year: number, month: number, startDay = 1, offReason?: string
 ): Promise<RosterData> {
   const days = new Date(year, month, 0).getDate();
   let updated = { ...roster };
@@ -254,7 +254,7 @@ export async function applyWeeklyOffDay(
       shift: isOff ? 'off' : (existing ? existing.shift : (employee.defaultShift ?? 'morning')),
       effectiveFrom: existing ? (existing.effectiveFrom || dateStr) : dateStr,
       effectiveTo: existing ? (existing.effectiveTo || dateStr) : dateStr,
-      reason: existing ? existing.reason : undefined,
+      reason: isOff && offReason ? offReason : (existing ? existing.reason : undefined),
       isOffDayOverride: isOff ? true : (existing ? existing.isOffDayOverride : false),
     });
   }

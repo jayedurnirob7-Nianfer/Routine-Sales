@@ -153,13 +153,18 @@ export default function DashboardPage() {
       const isLeave = assignment?.reason?.startsWith('LEAVE|');
 
       let prevShift: ShiftType | null = null;
-      // Look back up to 7 days to find their last real working shift (skips leaves and off days!)
-      for (let i = 1; i <= 7; i++) {
-        const pastDate = prevDateKeyN(date, i);
-        const pastAssignment = getAssignment(roster, emp, pastDate);
-        if (pastAssignment && TODAY_SHIFTS.includes(pastAssignment.shift)) {
-          prevShift = pastAssignment.shift;
-          break;
+      
+      if (assignment?.reason?.startsWith('OFF|')) {
+        prevShift = assignment.reason.split('|')[1] as ShiftType;
+      } else {
+        // Look back up to 7 days to find their last real working shift (skips leaves and off days!)
+        for (let i = 1; i <= 7; i++) {
+          const pastDate = prevDateKeyN(date, i);
+          const pastAssignment = getAssignment(roster, emp, pastDate);
+          if (pastAssignment && TODAY_SHIFTS.includes(pastAssignment.shift)) {
+            prevShift = pastAssignment.shift;
+            break;
+          }
         }
       }
 
