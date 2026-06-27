@@ -11,7 +11,7 @@ export default function IssuesPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'pending' | 'resolved'>('pending');
+  const [activeTab, setActiveTab] = useState<'handler_pending' | 'hr_pending' | 'resolved' | 'canceled'>('handler_pending');
   const [roster, setRoster] = useState<RosterData>({});
   const [processingId, setProcessingId] = useState<string | null>(null);
 
@@ -44,17 +44,23 @@ export default function IssuesPage() {
     return Object.values(emp.requests).map(r => ({ emp, req: r }));
   }).sort((a, b) => b.req.createdAt.localeCompare(a.req.createdAt));
 
-  const pendingRequests = allRequests.filter(i => i.req.status === 'pending');
-  const resolvedRequests = allRequests.filter(i => i.req.status !== 'pending');
+  const handlerPendingRequests = allRequests.filter(i => i.req.status === 'pending');
+  const hrPendingRequests = allRequests.filter(i => i.req.status === 'handler_approved');
+  const resolvedRequests = allRequests.filter(i => i.req.status === 'resolved' || i.req.status === 'approved');
+  const canceledRequests = allRequests.filter(i => i.req.status === 'canceled' || i.req.status === 'rejected');
 
-  const displayRequests = activeTab === 'pending' ? pendingRequests : resolvedRequests;
+  const displayRequests = activeTab === 'handler_pending' ? handlerPendingRequests :
+                          activeTab === 'hr_pending' ? hrPendingRequests :
+                          activeTab === 'resolved' ? resolvedRequests : canceledRequests;
 
   async function handleApprove(emp: Employee, req: ShiftRequest) {
     const id = `${emp.id}-${req.date}-approve`;
     setProcessingId(id);
     const isLeave = req.type === 'leave';
+    let previousAssignment: import('@/types').ShiftAssignment | null = null;
     
     if (req.type !== 'issue') {
+      previousAssignment = getAssignment(roster, emp, req.date) || null;
       const newRoster = await upsertAssignment(roster, req.date, {
         employeeId: emp.id,
         shift: (req.type === 'off' || isLeave) ? 'off' : (req.requestedShift || 'morning'),
@@ -70,7 +76,21 @@ export default function IssuesPage() {
     const freshEmps = await getEmployees();
     const e = freshEmps.find(x => x.id === emp.id);
     if (e && e.requests) {
-      e.requests[req.date] = { ...e.requests[req.date], status: 'approved' };
+      e.requests[req.date] = { ...e.requests[req.date], status: 'handler_approved', previousAssignment };
+      setEmployees(freshEmps);
+      await saveEmployees(freshEmps);
+    }
+    setProcessingId(null);
+  }
+
+  async function handleHRApprove(emp: Employee, req: ShiftRequest) {
+    const id = `${emp.id}-${req.date}-hrapprove`;
+    setProcessingId(id);
+    invalidateCache();
+    const freshEmps = await getEmployees();
+    const e = freshEmps.find(x => x.id === emp.id);
+    if (e && e.requests) {
+      e.requests[req.date] = { ...e.requests[req.date], status: 'resolved' };
       setEmployees(freshEmps);
       await saveEmployees(freshEmps);
     }
@@ -85,6 +105,33 @@ export default function IssuesPage() {
     const e = freshEmps.find(x => x.id === emp.id);
     if (e && e.requests) {
       e.requests[req.date] = { ...e.requests[req.date], status: 'rejected' };
+      setEmployees(freshEmps);
+      await saveEmployees(freshEmps);
+    }
+    setProcessingId(null);
+  }
+
+  async function handleHRCancel(emp: Employee, req: ShiftRequest) {
+    const id = `${emp.id}-${req.date}-hrcancel`;
+    setProcessingId(id);
+    
+    if (req.type !== 'issue') {
+      if (req.previousAssignment) {
+        const newRoster = await upsertAssignment(roster, req.date, req.previousAssignment);
+        setRoster(newRoster);
+      } else {
+        const others = (roster[req.date] || []).filter(a => a.employeeId !== emp.id && a.employeeId !== emp.employeeId);
+        const newRoster = { ...roster, [req.date]: others };
+        setRoster(newRoster);
+        await import('@/lib/store').then(m => m.saveRoster(newRoster));
+      }
+    }
+
+    invalidateCache();
+    const freshEmps = await getEmployees();
+    const e = freshEmps.find(x => x.id === emp.id);
+    if (e && e.requests) {
+      e.requests[req.date] = { ...e.requests[req.date], status: 'canceled' };
       setEmployees(freshEmps);
       await saveEmployees(freshEmps);
     }
@@ -106,10 +153,12 @@ export default function IssuesPage() {
     setProcessingId(null);
   }
 
-  function downloadRequestsCSV(type: 'all' | 'pending' | 'resolved') {
+  function downloadRequestsCSV(type: 'all' | 'handler_pending' | 'hr_pending' | 'resolved' | 'canceled') {
     let source = allRequests;
-    if (type === 'pending') source = pendingRequests;
+    if (type === 'handler_pending') source = handlerPendingRequests;
+    if (type === 'hr_pending') source = hrPendingRequests;
     if (type === 'resolved') source = resolvedRequests;
+    if (type === 'canceled') source = canceledRequests;
 
     if (source.length === 0) return;
 
@@ -201,9 +250,9 @@ export default function IssuesPage() {
             <div className="flex items-center gap-1.5 shrink-0">
               <button 
                 className="px-3 py-1.5 text-xs font-bold rounded-lg bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 shadow-sm border border-gray-200 dark:border-gray-600 hover:text-amber-600 dark:hover:text-amber-400 hover:border-amber-300 dark:hover:border-amber-500/50 transition-all flex items-center gap-1.5 hover:shadow active:scale-95" 
-                onClick={() => downloadRequestsCSV('pending')}
+                onClick={() => downloadRequestsCSV('hr_pending')}
               >
-                <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" /> Pending
+                <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" /> Pending HR
               </button>
               <button 
                 className="px-3 py-1.5 text-xs font-bold rounded-lg bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 shadow-sm border border-gray-200 dark:border-gray-600 hover:text-teal-600 dark:hover:text-teal-400 hover:border-teal-300 dark:hover:border-teal-500/50 transition-all flex items-center gap-1.5 hover:shadow active:scale-95" 
@@ -225,18 +274,30 @@ export default function IssuesPage() {
         </div>
       </div>
 
-      <div className="flex gap-2 p-1 bg-gray-100 dark:bg-gray-800 rounded-xl w-fit">
+      <div className="flex flex-wrap gap-2 p-1 bg-gray-100 dark:bg-gray-800 rounded-xl w-fit">
         <button 
-          className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${activeTab === 'pending' ? 'bg-white dark:bg-gray-700 shadow-sm text-teal-600' : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'}`}
-          onClick={() => setActiveTab('pending')}
+          className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${activeTab === 'handler_pending' ? 'bg-white dark:bg-gray-700 shadow-sm text-teal-600' : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'}`}
+          onClick={() => setActiveTab('handler_pending')}
         >
-          Pending ({pendingRequests.length})
+          Pending Handler ({handlerPendingRequests.length})
+        </button>
+        <button 
+          className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${activeTab === 'hr_pending' ? 'bg-white dark:bg-gray-700 shadow-sm text-teal-600' : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'}`}
+          onClick={() => setActiveTab('hr_pending')}
+        >
+          Pending HR ({hrPendingRequests.length})
         </button>
         <button 
           className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${activeTab === 'resolved' ? 'bg-white dark:bg-gray-700 shadow-sm text-teal-600' : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'}`}
           onClick={() => setActiveTab('resolved')}
         >
           Resolved ({resolvedRequests.length})
+        </button>
+        <button 
+          className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${activeTab === 'canceled' ? 'bg-white dark:bg-gray-700 shadow-sm text-red-600' : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'}`}
+          onClick={() => setActiveTab('canceled')}
+        >
+          Canceled / Rejected ({canceledRequests.length})
         </button>
       </div>
 
@@ -286,35 +347,59 @@ export default function IssuesPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  {activeTab === 'pending' ? (
+                  {activeTab === 'handler_pending' && (
                     <>
                       <button 
                         disabled={!!processingId}
                         className="btn-primary flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-wait text-xs" 
                         onClick={() => handleApprove(emp, req)}
                       >
-                        {processingId === `${emp.id}-${req.date}-approve` ? '⏳ Processing...' : isIssue ? '✅ Mark Resolved' : '✅ Approve'}
+                        {processingId === `${emp.id}-${req.date}-approve` ? '⏳ Processing...' : isIssue ? '✅ Accept (To HR)' : '✅ Accept (To HR)'}
                       </button>
-                      {!isIssue && (
-                        <button 
-                          disabled={!!processingId}
-                          className="btn-secondary text-red-500 border-red-200 hover:bg-red-50 disabled:opacity-50 disabled:cursor-wait text-xs" 
-                          onClick={() => handleReject(emp, req)}
-                        >
-                          {processingId === `${emp.id}-${req.date}-reject` ? '⏳...' : 'Reject'}
-                        </button>
-                      )}
+                      <button 
+                        disabled={!!processingId}
+                        className="btn-secondary text-red-500 border-red-200 hover:bg-red-50 disabled:opacity-50 disabled:cursor-wait text-xs" 
+                        onClick={() => handleReject(emp, req)}
+                      >
+                        {processingId === `${emp.id}-${req.date}-reject` ? '⏳...' : 'Reject'}
+                      </button>
                     </>
-                  ) : (
+                  )}
+                  {activeTab === 'hr_pending' && (
+                    <>
+                      <button 
+                        disabled={!!processingId}
+                        className="btn-primary flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-wait text-xs bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700" 
+                        onClick={() => handleHRApprove(emp, req)}
+                      >
+                        {processingId === `${emp.id}-${req.date}-hrapprove` ? '⏳ Processing...' : '⭐ Final Approve'}
+                      </button>
+                      <button 
+                        disabled={!!processingId}
+                        className="btn-secondary text-red-500 border-red-200 hover:bg-red-50 disabled:opacity-50 disabled:cursor-wait text-xs" 
+                        onClick={() => handleHRCancel(emp, req)}
+                        title="Cancel this request and revert any changes to the roster"
+                      >
+                        {processingId === `${emp.id}-${req.date}-hrcancel` ? '⏳...' : 'Cancel & Revert'}
+                      </button>
+                    </>
+                  )}
+                  {activeTab === 'resolved' && (
                     <div className="px-4 py-2 bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 font-bold rounded-xl text-sm flex items-center gap-2">
-                      <span>✓</span> {req.status === 'approved' ? 'Approved' : 'Rejected'}
+                      <span>✓</span> HR Approved
                     </div>
                   )}
+                  {activeTab === 'canceled' && (
+                    <div className="px-4 py-2 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 font-bold rounded-xl text-sm flex items-center gap-2">
+                      <span>✕</span> {req.status === 'canceled' ? 'Canceled by HR' : 'Rejected'}
+                    </div>
+                  )}
+                  
                   <button 
                     disabled={!!processingId}
-                    className="text-gray-400 hover:text-red-500 transition-colors p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50" 
+                    className="text-gray-400 hover:text-red-500 transition-colors p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 ml-2" 
                     onClick={() => handleDeleteRequest(emp, req)}
-                    title="Delete"
+                    title="Delete Permanently"
                   >
                     {processingId === `${emp.id}-${req.date}-delete` ? '⏳' : '🗑️'}
                   </button>

@@ -13,9 +13,10 @@ export interface ShiftRequest {
   date: string;
   type: 'off' | 'shift' | 'leave' | 'issue';
   requestedShift?: ShiftType;
-  status: 'pending' | 'approved' | 'rejected';
+  status: 'pending' | 'approved' | 'handler_approved' | 'resolved' | 'rejected' | 'canceled';
   reason?: string;
   createdAt: string;
+  previousAssignment?: ShiftAssignment | null;
 }
 
 export interface Employee {
