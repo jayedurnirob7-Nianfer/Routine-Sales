@@ -76,7 +76,8 @@ export default function IssuesPage() {
     const freshEmps = await getEmployees();
     const e = freshEmps.find(x => x.id === emp.id);
     if (e && e.requests) {
-      e.requests[req.date] = { ...e.requests[req.date], status: 'handler_approved', previousAssignment };
+      const newStatus = isLeave ? 'resolved' : 'handler_approved';
+      e.requests[req.date] = { ...e.requests[req.date], status: newStatus, previousAssignment };
       setEmployees(freshEmps);
       await saveEmployees(freshEmps);
     }
