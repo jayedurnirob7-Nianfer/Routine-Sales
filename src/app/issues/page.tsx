@@ -113,7 +113,7 @@ export default function IssuesPage() {
 
     if (source.length === 0) return;
 
-    const headers = ['Employee ID', 'Name', 'Target Date', 'Current Shift', 'Type', 'Reason', 'Status', 'Date Applied'];
+    const headers = ['Employee ID', 'Name', 'Target Date', 'Assigned Shift', 'Type', 'Reason', 'Status', 'Date Applied'];
     const rows = source.map(({ emp, req }) => {
       const escapeCsv = (val: any) => {
         if (val == null) return '""';
