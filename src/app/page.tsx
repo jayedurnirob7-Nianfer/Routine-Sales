@@ -5,6 +5,9 @@ import { Employee, RosterData, ShiftType, ShiftRequest } from '@/types';
 import { useAuth } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core';
+import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 const TODAY_SHIFTS: ShiftType[] = ['morning', 'evening', 'night'];
 
@@ -40,7 +43,6 @@ export default function DashboardPage() {
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState<string | null>(null);
   const [popoverTarget, setPopoverTarget] = useState<PopoverTarget | null>(null);
-  const [draggedEmpId, setDraggedEmpId]   = useState<string | null>(null);
   const { employeeUser } = useAuth();
   const today = todayKey();
 
@@ -109,32 +111,24 @@ export default function DashboardPage() {
 
   function prevDateKeyN(date: string, n: number): string {
     const [y, m, d] = date.split('-').map(Number);
-    const dt = new Date(y, m - 1, d - n);
-    return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
-  }
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
 
-  function handleDropEmployee(targetEmpId: string) {
-    if (!draggedEmpId || draggedEmpId === targetEmpId) {
-      setDraggedEmpId(null);
-      return;
-    }
+  function handleDropEmployee(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    
     const newEmployees = [...employees];
-    const dragIdx = newEmployees.findIndex(e => e.id === draggedEmpId);
-    const targetIdx = newEmployees.findIndex(e => e.id === targetEmpId);
+    const dragIdx = newEmployees.findIndex(e => e.id === active.id);
+    const targetIdx = newEmployees.findIndex(e => e.id === over.id);
     
     if (dragIdx !== -1 && targetIdx !== -1) {
-      const [draggedItem] = newEmployees.splice(dragIdx, 1);
-      
-      const newTargetIdx = newEmployees.findIndex(e => e.id === targetEmpId);
-      // Insert after if moving down, before if moving up for better UX
-      const insertIdx = dragIdx < targetIdx ? newTargetIdx + 1 : newTargetIdx;
-      
-      newEmployees.splice(insertIdx, 0, draggedItem);
-      
-      setEmployees(newEmployees);
-      saveEmployees(newEmployees);
+      const moved = arrayMove(newEmployees, dragIdx, targetIdx);
+      setEmployees(moved);
+      saveEmployees(moved);
     }
-    setDraggedEmpId(null);
   }
 
   // ✅ Intelligently routes Off days by looking up to 7 days in the past (Fixes Nahid's issue!)
@@ -300,21 +294,24 @@ export default function DashboardPage() {
     const progress = shift === 'night' ? getNightShiftProgress(roster, emp, today) : null; 
     const isDraggable = isAdmin && !muted;
 
+    const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+      id: emp.id,
+      disabled: !isDraggable,
+    });
+
+    const style = {
+      transform: CSS.Transform.toString(transform),
+      transition,
+      ...(isDragging ? { position: 'relative', zIndex: 50, opacity: 0.9, scale: 1.02, boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)' } : {}),
+    } as React.CSSProperties;
+
     return (
       <div
-        draggable={isDraggable}
-        onDragStart={() => { if (isDraggable) setDraggedEmpId(emp.id); }}
-        onDragOver={(e) => { if (isDraggable && draggedEmpId && draggedEmpId !== emp.id) e.preventDefault(); }}
-        onDrop={(e) => { 
-          if (isDraggable && draggedEmpId) {
-            e.preventDefault();
-            handleDropEmployee(emp.id);
-          }
-        }}
-        onDragEnd={() => setDraggedEmpId(null)}
-        className={`relative flex items-center gap-2 cursor-pointer rounded-lg px-1 py-0.5 transition-all
-          ${muted ? '' : 'hover:bg-gray-50 dark:hover:bg-gray-800/40 -mx-1'} 
-          ${draggedEmpId === emp.id ? 'opacity-40 scale-[0.98]' : 'opacity-100'}`}
+        ref={setNodeRef}
+        style={style}
+        className={`relative flex items-center gap-2 rounded-lg px-1 py-0.5 transition-colors
+          ${muted ? '' : 'hover:bg-gray-50 dark:hover:bg-gray-800/40 -mx-1 bg-white dark:bg-gray-900'} 
+          ${isDragging ? 'ring-2 ring-teal-500 shadow-xl' : ''}`}
         onClick={(e) => { e.stopPropagation(); e.nativeEvent.stopImmediatePropagation(); togglePopover(emp.id, date, shift); }}>
         <div className={`w-7 h-7 rounded-full shrink-0 overflow-hidden shadow-sm border border-gray-200/50 dark:border-gray-700/50
           ${muted ? 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300'}`}>
@@ -332,7 +329,7 @@ export default function DashboardPage() {
           <div className={`text-xs ${muted ? 'text-gray-400/80 dark:text-gray-500' : 'text-gray-400'}`}>{emp.employeeId} · {emp.role.split('|IMG:')[0]}</div>
         </div>
         {isDraggable && (
-          <div className="ml-auto z-10 text-gray-300 dark:text-gray-600 hover:text-teal-500 cursor-grab active:cursor-grabbing px-2 flex items-center justify-center opacity-50 hover:opacity-100 transition-opacity" title="Drag to reorder">
+          <div {...listeners} {...attributes} onClick={e => e.stopPropagation()} className="ml-auto z-10 text-gray-300 dark:text-gray-600 hover:text-teal-500 cursor-grab active:cursor-grabbing px-2 flex items-center justify-center opacity-50 hover:opacity-100 transition-opacity" title="Drag to reorder">
             <svg width="12" height="20" viewBox="0 0 12 20" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
               <circle cx="4" cy="4" r="1.5" />
               <circle cx="4" cy="10" r="1.5" />
@@ -362,15 +359,19 @@ export default function DashboardPage() {
           </div>
         </div>
         <div className="p-4 flex-1 h-full flex flex-col justify-between">
-          <div className="space-y-2 mb-4">
-            {employees.length === 0 ? (
-              <p className="text-gray-400 text-sm">No one assigned</p>
-            ) : (
-              employees.map((emp) => (
-                <EmployeeRow key={emp.id} emp={emp} date={date} shift={shift} />
-              ))
-            )}
-          </div>
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDropEmployee}>
+            <SortableContext items={employees.map(e => e.id)} strategy={verticalListSortingStrategy}>
+              <div className="space-y-2 mb-4">
+                {employees.length === 0 ? (
+                  <p className="text-gray-400 text-sm">No one assigned</p>
+                ) : (
+                  employees.map((emp) => (
+                    <EmployeeRow key={emp.id} emp={emp} date={date} shift={shift} />
+                  ))
+                )}
+              </div>
+            </SortableContext>
+          </DndContext>
 
           {(offEmployees.length > 0 || leaveEmployees.length > 0) && (
             <div className="pt-4 border-t border-gray-100 dark:border-gray-800 space-y-3">
