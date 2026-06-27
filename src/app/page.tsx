@@ -40,6 +40,7 @@ export default function DashboardPage() {
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState<string | null>(null);
   const [popoverTarget, setPopoverTarget] = useState<PopoverTarget | null>(null);
+  const [draggedEmpId, setDraggedEmpId]   = useState<string | null>(null);
   const { employeeUser } = useAuth();
   const today = todayKey();
 
@@ -112,32 +113,28 @@ export default function DashboardPage() {
     return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
   }
 
-  function moveEmployee(shift: ShiftType, date: string, empId: string, direction: 'up' | 'down') {
-    const shiftEmployees = getShiftEmployees(shift, date);
-    const shiftIndex = shiftEmployees.findIndex(e => e.id === empId);
-    if (shiftIndex === -1) return;
-
-    let swapEmpId: string | null = null;
-    if (direction === 'up' && shiftIndex > 0) {
-      swapEmpId = shiftEmployees[shiftIndex - 1].id;
-    } else if (direction === 'down' && shiftIndex < shiftEmployees.length - 1) {
-      swapEmpId = shiftEmployees[shiftIndex + 1].id;
+  function handleDropEmployee(targetEmpId: string) {
+    if (!draggedEmpId || draggedEmpId === targetEmpId) {
+      setDraggedEmpId(null);
+      return;
     }
-
-    if (swapEmpId) {
-      const newEmployees = [...employees];
-      const idx1 = newEmployees.findIndex(e => e.id === empId);
-      const idx2 = newEmployees.findIndex(e => e.id === swapEmpId!);
-
-      if (idx1 !== -1 && idx2 !== -1) {
-        const temp = newEmployees[idx1];
-        newEmployees[idx1] = newEmployees[idx2];
-        newEmployees[idx2] = temp;
-
-        setEmployees(newEmployees);
-        saveEmployees(newEmployees); // Persists global order to backend
-      }
+    const newEmployees = [...employees];
+    const dragIdx = newEmployees.findIndex(e => e.id === draggedEmpId);
+    const targetIdx = newEmployees.findIndex(e => e.id === targetEmpId);
+    
+    if (dragIdx !== -1 && targetIdx !== -1) {
+      const [draggedItem] = newEmployees.splice(dragIdx, 1);
+      
+      const newTargetIdx = newEmployees.findIndex(e => e.id === targetEmpId);
+      // Insert after if moving down, before if moving up for better UX
+      const insertIdx = dragIdx < targetIdx ? newTargetIdx + 1 : newTargetIdx;
+      
+      newEmployees.splice(insertIdx, 0, draggedItem);
+      
+      setEmployees(newEmployees);
+      saveEmployees(newEmployees);
     }
+    setDraggedEmpId(null);
   }
 
   // ✅ Intelligently routes Off days by looking up to 7 days in the past (Fixes Nahid's issue!)
@@ -298,13 +295,26 @@ export default function DashboardPage() {
     );
   }
 
-  function EmployeeRow({ emp, date, shift, muted = false, isFirst, isLast, onMoveUp, onMoveDown }: { emp: Employee; date: string; shift: ShiftType; muted?: boolean; isFirst?: boolean; isLast?: boolean; onMoveUp?: () => void; onMoveDown?: () => void }) {
+  function EmployeeRow({ emp, date, shift, muted = false }: { emp: Employee; date: string; shift: ShiftType; muted?: boolean }) {
     const showPopover = isPopoverOpen(emp.id, date, shift);
     const progress = shift === 'night' ? getNightShiftProgress(roster, emp, today) : null; 
+    const isDraggable = isAdmin && !muted;
 
     return (
       <div
-        className={`relative flex items-center gap-2 cursor-pointer rounded-lg px-1 py-0.5 ${muted ? '' : 'hover:bg-gray-50 dark:hover:bg-gray-800/40 -mx-1'}`}
+        draggable={isDraggable}
+        onDragStart={() => { if (isDraggable) setDraggedEmpId(emp.id); }}
+        onDragOver={(e) => { if (isDraggable && draggedEmpId && draggedEmpId !== emp.id) e.preventDefault(); }}
+        onDrop={(e) => { 
+          if (isDraggable && draggedEmpId) {
+            e.preventDefault();
+            handleDropEmployee(emp.id);
+          }
+        }}
+        onDragEnd={() => setDraggedEmpId(null)}
+        className={`relative flex items-center gap-2 cursor-pointer rounded-lg px-1 py-0.5 transition-all
+          ${muted ? '' : 'hover:bg-gray-50 dark:hover:bg-gray-800/40 -mx-1'} 
+          ${draggedEmpId === emp.id ? 'opacity-40 scale-[0.98]' : 'opacity-100'}`}
         onClick={(e) => { e.stopPropagation(); e.nativeEvent.stopImmediatePropagation(); togglePopover(emp.id, date, shift); }}>
         <div className={`w-7 h-7 rounded-full shrink-0 overflow-hidden shadow-sm border border-gray-200/50 dark:border-gray-700/50
           ${muted ? 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300'}`}>
@@ -321,10 +331,16 @@ export default function DashboardPage() {
           </div>
           <div className={`text-xs ${muted ? 'text-gray-400/80 dark:text-gray-500' : 'text-gray-400'}`}>{emp.employeeId} · {emp.role.split('|IMG:')[0]}</div>
         </div>
-        {isAdmin && !muted && onMoveUp && onMoveDown && (
-          <div className="flex flex-col gap-0 ml-auto z-10" onClick={(e) => { e.stopPropagation(); e.nativeEvent.stopImmediatePropagation(); }}>
-            <button onClick={onMoveUp} disabled={isFirst} className="text-gray-300 hover:text-teal-500 disabled:opacity-20 px-2 py-0.5 leading-none text-xs" title="Move Up">▲</button>
-            <button onClick={onMoveDown} disabled={isLast} className="text-gray-300 hover:text-teal-500 disabled:opacity-20 px-2 py-0.5 leading-none text-xs" title="Move Down">▼</button>
+        {isDraggable && (
+          <div className="ml-auto z-10 text-gray-300 dark:text-gray-600 hover:text-teal-500 cursor-grab active:cursor-grabbing px-2 flex items-center justify-center opacity-50 hover:opacity-100 transition-opacity" title="Drag to reorder">
+            <svg width="12" height="20" viewBox="0 0 12 20" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="4" cy="4" r="1.5" />
+              <circle cx="4" cy="10" r="1.5" />
+              <circle cx="4" cy="16" r="1.5" />
+              <circle cx="8" cy="4" r="1.5" />
+              <circle cx="8" cy="10" r="1.5" />
+              <circle cx="8" cy="16" r="1.5" />
+            </svg>
           </div>
         )}
         {showPopover && <NightProgressPopover employee={emp} />}
@@ -350,14 +366,8 @@ export default function DashboardPage() {
             {employees.length === 0 ? (
               <p className="text-gray-400 text-sm">No one assigned</p>
             ) : (
-              employees.map((emp, idx) => (
-                <EmployeeRow 
-                  key={emp.id} emp={emp} date={date} shift={shift} 
-                  isFirst={idx === 0} 
-                  isLast={idx === employees.length - 1}
-                  onMoveUp={() => moveEmployee(shift, date, emp.id, 'up')}
-                  onMoveDown={() => moveEmployee(shift, date, emp.id, 'down')}
-                />
+              employees.map((emp) => (
+                <EmployeeRow key={emp.id} emp={emp} date={date} shift={shift} />
               ))
             )}
           </div>
