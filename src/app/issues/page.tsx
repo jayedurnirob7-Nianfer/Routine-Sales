@@ -174,23 +174,53 @@ export default function IssuesPage() {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      <div className="flex flex-col md:flex-row items-center justify-between gap-4 border-b border-gray-200 dark:border-gray-800 pb-4">
-        <h1 className="text-2xl font-bold">Requests & Issues</h1>
-        <div className="flex items-center gap-3 w-full md:w-auto">
-          <button className="btn-ghost text-xs border border-gray-200 dark:border-gray-700 w-full md:w-auto" onClick={() => load(true)}>
-            ↻ Refresh
+      <div className="flex flex-col md:flex-row items-center justify-between gap-4 pb-4">
+        <div>
+          <h1 className="text-2xl font-black bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-400 bg-clip-text text-transparent">Requests & Issues</h1>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 font-medium">Manage and export all employee shift and leave requests</p>
+        </div>
+        
+        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+          <button 
+            className="flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-bold text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700/80 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow transition-all group active:scale-95"
+            onClick={() => load(true)}
+          >
+            <svg className="w-3.5 h-3.5 text-gray-400 group-hover:text-teal-500 group-hover:rotate-180 transition-transform duration-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            Refresh
           </button>
-          <div className="flex items-center gap-2 bg-gray-50 dark:bg-gray-800/50 p-1 rounded-xl border border-gray-200 dark:border-gray-700">
-            <span className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider pl-2 hidden sm:inline">Export CSV:</span>
-            <button className="btn-secondary text-xs px-3 py-1.5 flex items-center gap-1.5 border-none shadow-sm" onClick={() => downloadRequestsCSV('pending')}>
-              <span>📥</span> Pending
-            </button>
-            <button className="btn-secondary text-xs px-3 py-1.5 flex items-center gap-1.5 border-none shadow-sm" onClick={() => downloadRequestsCSV('resolved')}>
-              <span>📥</span> Resolved
-            </button>
-            <button className="btn-primary text-xs px-3 py-1.5 flex items-center gap-1.5 shadow-sm" onClick={() => downloadRequestsCSV('all')}>
-              <span>📥</span> All
-            </button>
+          
+          <div className="flex items-center bg-gray-100/80 dark:bg-gray-800/60 p-1.5 rounded-xl border border-gray-200/50 dark:border-gray-700/50 shadow-inner overflow-x-auto w-full md:w-auto">
+            <div className="text-[10px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest px-3 hidden sm:flex items-center gap-1.5 shrink-0">
+              <svg className="w-3 h-3 text-teal-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              Export CSV
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button 
+                className="px-3 py-1.5 text-xs font-bold rounded-lg bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 shadow-sm border border-gray-200 dark:border-gray-600 hover:text-amber-600 dark:hover:text-amber-400 hover:border-amber-300 dark:hover:border-amber-500/50 transition-all flex items-center gap-1.5 hover:shadow active:scale-95" 
+                onClick={() => downloadRequestsCSV('pending')}
+              >
+                <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" /> Pending
+              </button>
+              <button 
+                className="px-3 py-1.5 text-xs font-bold rounded-lg bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 shadow-sm border border-gray-200 dark:border-gray-600 hover:text-teal-600 dark:hover:text-teal-400 hover:border-teal-300 dark:hover:border-teal-500/50 transition-all flex items-center gap-1.5 hover:shadow active:scale-95" 
+                onClick={() => downloadRequestsCSV('resolved')}
+              >
+                <div className="w-1.5 h-1.5 rounded-full bg-teal-500" /> Resolved
+              </button>
+              <button 
+                className="px-4 py-1.5 text-xs font-bold rounded-lg bg-gradient-to-r from-teal-500 to-emerald-500 text-white shadow-md hover:shadow-lg hover:-translate-y-0.5 hover:scale-105 transition-all flex items-center gap-1.5 border border-teal-400/50 active:scale-95" 
+                onClick={() => downloadRequestsCSV('all')}
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                Download All
+              </button>
+            </div>
           </div>
         </div>
       </div>
