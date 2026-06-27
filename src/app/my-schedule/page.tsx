@@ -62,46 +62,52 @@ export default function MySchedulePage() {
     if (!reqDate || !employeeUser) return;
     setSaving(true);
     
-    // CRITICAL: Force fresh fetch to avoid overwriting Google Sheets with stale local cache!
-    invalidateCache();
-    const emps = await getEmployees();
-    
-    const empIdx = emps.findIndex(e => e.id === employeeUser.id);
-    if (empIdx === -1) {
-      setSaving(false);
-      return;
-    }
-
-    let reasonToSave = undefined;
-    if (reqType === 'leave' || reqType === 'issue') {
-      reasonToSave = reqReason;
-    } else if (reqType === 'shift') {
-      const currentAssigned = getAssignment(roster, employeeUser, reqDate);
-      let oldShiftStr = currentAssigned?.shift || employeeUser.defaultShift || 'unknown';
-      if (SHIFT_INFO[oldShiftStr as ShiftType]) {
-        oldShiftStr = SHIFT_INFO[oldShiftStr as ShiftType].label;
+    try {
+      // CRITICAL: Force fresh fetch to avoid overwriting Google Sheets with stale local cache!
+      invalidateCache();
+      const emps = await getEmployees();
+      
+      const empIdx = emps.findIndex(e => e.id === employeeUser.id);
+      if (empIdx === -1) {
+        setSaving(false);
+        return;
       }
-      reasonToSave = `From: ${oldShiftStr}`;
+
+      let reasonToSave = undefined;
+      if (reqType === 'leave' || reqType === 'issue') {
+        reasonToSave = reqReason;
+      } else if (reqType === 'shift') {
+        const currentAssigned = getAssignment(roster, employeeUser, reqDate);
+        let oldShiftStr = currentAssigned?.shift || employeeUser.defaultShift || 'unknown';
+        if (SHIFT_INFO[oldShiftStr as ShiftType]) {
+          oldShiftStr = SHIFT_INFO[oldShiftStr as ShiftType].label;
+        }
+        reasonToSave = `From: ${oldShiftStr}`;
+      }
+
+      const newReqs = { ...emps[empIdx].requests };
+      newReqs[reqDate] = {
+        date: reqDate,
+        type: reqType,
+        requestedShift: reqType === 'shift' ? reqShift : undefined,
+        reason: reasonToSave,
+        status: 'pending',
+        createdAt: new Date().toISOString()
+      };
+      emps[empIdx].requests = newReqs;
+
+      await saveEmployees(emps);
+      setLocalRequests(newReqs);
+      
+      setReqDate(null);
+      setReqReason('');
+      setToast('success');
+    } catch (error: any) {
+      console.error("Submit error:", error);
+      alert(`An error occurred while saving: ${error.message}`);
+    } finally {
+      setSaving(false);
     }
-
-    const newReqs = { ...emps[empIdx].requests };
-    newReqs[reqDate] = {
-      date: reqDate,
-      type: reqType,
-      requestedShift: reqType === 'shift' ? reqShift : undefined,
-      reason: reasonToSave,
-      status: 'pending',
-      createdAt: new Date().toISOString()
-    };
-    emps[empIdx].requests = newReqs;
-
-    await saveEmployees(emps);
-    setLocalRequests(newReqs);
-    setSaving(false);
-    
-    setReqDate(null);
-    setReqReason('');
-    setToast('success');
   }
 
   async function handleChangePassword() {

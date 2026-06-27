@@ -4,6 +4,7 @@ import { getEmployees, saveEmployees, invalidateCache, getRoster, upsertAssignme
 import { Employee, ShiftRequest, RosterData } from '@/types';
 import { useAuth } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
+import { ConfirmDialog } from '@/components/shared/Dialogs';
 
 export default function IssuesPage() {
   const { isAdmin } = useAuth();
@@ -14,6 +15,7 @@ export default function IssuesPage() {
   const [activeTab, setActiveTab] = useState<'handler_pending' | 'hr_pending' | 'resolved' | 'canceled'>('handler_pending');
   const [roster, setRoster] = useState<RosterData>({});
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const [confirmConfig, setConfirmConfig] = useState<{ open: boolean; title: string; message: string; action: () => void; isDestructive?: boolean }>({ open: false, title: '', message: '', action: () => {} });
 
   const load = useCallback(async (forceRefresh = false) => {
     setLoading(true);
@@ -52,6 +54,72 @@ export default function IssuesPage() {
   const displayRequests = activeTab === 'handler_pending' ? handlerPendingRequests :
                           activeTab === 'hr_pending' ? hrPendingRequests :
                           activeTab === 'resolved' ? resolvedRequests : canceledRequests;
+
+  async function handleApproveAll() {
+    setProcessingId('approve-all');
+    invalidateCache();
+    const freshEmps = await getEmployees();
+    let updatedRoster = { ...roster };
+    let hasRosterChanges = false;
+    let hasEmpChanges = false;
+    
+    for (const { emp, req } of handlerPendingRequests) {
+      const e = freshEmps.find(x => x.id === emp.id);
+      if (e && e.requests && e.requests[req.date] && e.requests[req.date].status === 'pending') {
+        const isLeave = req.type === 'leave';
+        let previousAssignment: import('@/types').ShiftAssignment | null = null;
+        
+        if (req.type !== 'issue') {
+          previousAssignment = getAssignment(updatedRoster, emp, req.date) || null;
+          const others = (updatedRoster[req.date] ?? []).filter(a => a.employeeId !== emp.id && a.employeeId !== emp.employeeId);
+          updatedRoster[req.date] = [...others, {
+            employeeId: emp.id,
+            shift: (req.type === 'off' || isLeave) ? 'off' : (req.requestedShift || 'morning'),
+            effectiveFrom: req.date,
+            effectiveTo: req.date,
+            isOffDayOverride: true,
+            reason: isLeave ? `LEAVE|${req.date}|${req.date}|${req.reason || 'Leave'}` : `Approved Request: ${req.type}`,
+          }];
+          hasRosterChanges = true;
+        }
+
+        const newStatus = isLeave ? 'resolved' : 'handler_approved';
+        e.requests[req.date] = { ...e.requests[req.date], status: newStatus, previousAssignment };
+        hasEmpChanges = true;
+      }
+    }
+
+    if (hasRosterChanges) {
+      setRoster(updatedRoster);
+      await import('@/lib/store').then(m => m.saveRoster(updatedRoster));
+    }
+    if (hasEmpChanges) {
+      setEmployees(freshEmps);
+      await saveEmployees(freshEmps);
+    }
+    setProcessingId(null);
+  }
+
+  async function handleHRApproveAll() {
+    setProcessingId('hrapprove-all');
+    invalidateCache();
+    const freshEmps = await getEmployees();
+    let hasEmpChanges = false;
+    
+    for (const { emp, req } of hrPendingRequests) {
+      const e = freshEmps.find(x => x.id === emp.id);
+      if (e && e.requests && e.requests[req.date] && e.requests[req.date].status === 'handler_approved') {
+        e.requests[req.date] = { ...e.requests[req.date], status: 'resolved' };
+        hasEmpChanges = true;
+      }
+    }
+    
+    if (hasEmpChanges) {
+      setEmployees(freshEmps);
+      await saveEmployees(freshEmps);
+    }
+    setProcessingId(null);
+  }
 
   async function handleApprove(emp: Employee, req: ShiftRequest) {
     const id = `${emp.id}-${req.date}-approve`;
@@ -140,7 +208,6 @@ export default function IssuesPage() {
   }
 
   async function handleDeleteRequest(emp: Employee, req: ShiftRequest) {
-    if (!confirm('Are you sure you want to permanently delete this request?')) return;
     const id = `${emp.id}-${req.date}-delete`;
     setProcessingId(id);
     invalidateCache();
@@ -202,7 +269,7 @@ export default function IssuesPage() {
         escapeCsv(currentShiftLabel),
         escapeCsv(req.type === 'issue' ? 'Reported Issue' : req.type === 'leave' ? 'Leave Request' : req.type === 'off' ? 'Off Day Request' : 'Shift Change Request'),
         escapeCsv(reasonStr),
-        escapeCsv(req.status === 'pending' ? 'Pending' : 'Resolved'),
+        escapeCsv((req.status === 'pending' || req.status === 'handler_approved') ? 'Pending' : (req.status === 'canceled' || req.status === 'rejected') ? 'Canceled' : 'Resolved'),
         escapeCsv(new Date(req.createdAt).toLocaleString())
       ].join(',');
     });
@@ -250,6 +317,12 @@ export default function IssuesPage() {
             </div>
             <div className="flex items-center gap-1.5 shrink-0">
               <button 
+                className="px-3 py-1.5 text-xs font-bold rounded-lg bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 shadow-sm border border-gray-200 dark:border-gray-600 hover:text-blue-600 dark:hover:text-blue-400 hover:border-blue-300 dark:hover:border-blue-500/50 transition-all flex items-center gap-1.5 hover:shadow active:scale-95" 
+                onClick={() => downloadRequestsCSV('handler_pending')}
+              >
+                <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" /> Pending Handler
+              </button>
+              <button 
                 className="px-3 py-1.5 text-xs font-bold rounded-lg bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 shadow-sm border border-gray-200 dark:border-gray-600 hover:text-amber-600 dark:hover:text-amber-400 hover:border-amber-300 dark:hover:border-amber-500/50 transition-all flex items-center gap-1.5 hover:shadow active:scale-95" 
                 onClick={() => downloadRequestsCSV('hr_pending')}
               >
@@ -260,6 +333,12 @@ export default function IssuesPage() {
                 onClick={() => downloadRequestsCSV('resolved')}
               >
                 <div className="w-1.5 h-1.5 rounded-full bg-teal-500" /> Resolved
+              </button>
+              <button 
+                className="px-3 py-1.5 text-xs font-bold rounded-lg bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 shadow-sm border border-gray-200 dark:border-gray-600 hover:text-red-600 dark:hover:text-red-400 hover:border-red-300 dark:hover:border-red-500/50 transition-all flex items-center gap-1.5 hover:shadow active:scale-95 hidden lg:flex" 
+                onClick={() => downloadRequestsCSV('canceled')}
+              >
+                <div className="w-1.5 h-1.5 rounded-full bg-red-500" /> Canceled
               </button>
               <button 
                 className="px-4 py-1.5 text-xs font-bold rounded-lg bg-gradient-to-r from-teal-500 to-emerald-500 text-white shadow-md hover:shadow-lg hover:-translate-y-0.5 hover:scale-105 transition-all flex items-center gap-1.5 border border-teal-400/50 active:scale-95" 
@@ -275,31 +354,62 @@ export default function IssuesPage() {
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2 p-1 bg-gray-100 dark:bg-gray-800 rounded-xl w-fit">
-        <button 
-          className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${activeTab === 'handler_pending' ? 'bg-white dark:bg-gray-700 shadow-sm text-teal-600' : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'}`}
-          onClick={() => setActiveTab('handler_pending')}
-        >
-          Pending Handler ({handlerPendingRequests.length})
-        </button>
-        <button 
-          className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${activeTab === 'hr_pending' ? 'bg-white dark:bg-gray-700 shadow-sm text-teal-600' : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'}`}
-          onClick={() => setActiveTab('hr_pending')}
-        >
-          Pending HR ({hrPendingRequests.length})
-        </button>
-        <button 
-          className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${activeTab === 'resolved' ? 'bg-white dark:bg-gray-700 shadow-sm text-teal-600' : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'}`}
-          onClick={() => setActiveTab('resolved')}
-        >
-          Resolved ({resolvedRequests.length})
-        </button>
-        <button 
-          className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${activeTab === 'canceled' ? 'bg-white dark:bg-gray-700 shadow-sm text-red-600' : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'}`}
-          onClick={() => setActiveTab('canceled')}
-        >
-          Canceled / Rejected ({canceledRequests.length})
-        </button>
+      <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between w-full">
+        <div className="flex flex-wrap gap-2 p-1 bg-gray-100 dark:bg-gray-800 rounded-xl w-fit">
+          <button 
+            className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${activeTab === 'handler_pending' ? 'bg-white dark:bg-gray-700 shadow-sm text-teal-600' : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'}`}
+            onClick={() => setActiveTab('handler_pending')}
+          >
+            Pending Handler ({handlerPendingRequests.length})
+          </button>
+          <button 
+            className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${activeTab === 'hr_pending' ? 'bg-white dark:bg-gray-700 shadow-sm text-teal-600' : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'}`}
+            onClick={() => setActiveTab('hr_pending')}
+          >
+            Pending HR ({hrPendingRequests.length})
+          </button>
+          <button 
+            className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${activeTab === 'resolved' ? 'bg-white dark:bg-gray-700 shadow-sm text-teal-600' : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'}`}
+            onClick={() => setActiveTab('resolved')}
+          >
+            Resolved ({resolvedRequests.length})
+          </button>
+          <button 
+            className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${activeTab === 'canceled' ? 'bg-white dark:bg-gray-700 shadow-sm text-red-600' : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'}`}
+            onClick={() => setActiveTab('canceled')}
+          >
+            Canceled / Rejected ({canceledRequests.length})
+          </button>
+        </div>
+
+        {activeTab === 'handler_pending' && handlerPendingRequests.length > 0 && (
+          <button 
+            disabled={!!processingId}
+            className="btn-primary text-xs flex items-center gap-2 bg-teal-500 hover:bg-teal-600 px-5 py-2.5 disabled:opacity-50 shadow-md hover:shadow-lg transition-all active:scale-95"
+            onClick={() => setConfirmConfig({
+              open: true,
+              title: 'Accept All Requests',
+              message: 'Are you sure you want to accept ALL pending requests and forward them to HR?',
+              action: handleApproveAll
+            })}
+          >
+            {processingId === 'approve-all' ? '⏳ Processing...' : '✅ Accept All (To HR)'}
+          </button>
+        )}
+        {activeTab === 'hr_pending' && hrPendingRequests.length > 0 && (
+          <button 
+            disabled={!!processingId}
+            className="btn-primary text-xs flex items-center gap-2 bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700 px-5 py-2.5 disabled:opacity-50 shadow-md hover:shadow-lg transition-all active:scale-95"
+            onClick={() => setConfirmConfig({
+              open: true,
+              title: 'Final Approve All',
+              message: 'Are you sure you want to final approve ALL pending HR requests? This will update the dashboard roster immediately.',
+              action: handleHRApproveAll
+            })}
+          >
+            {processingId === 'hrapprove-all' ? '⏳ Processing...' : '⭐ Final Approve All'}
+          </button>
+        )}
       </div>
 
       {loading ? (
@@ -359,7 +469,7 @@ export default function IssuesPage() {
                       </button>
                       <button 
                         disabled={!!processingId}
-                        className="btn-secondary text-red-500 border-red-200 hover:bg-red-50 disabled:opacity-50 disabled:cursor-wait text-xs" 
+                        className="px-4 py-2 rounded-lg text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40 dark:text-red-400 transition-colors shadow-sm disabled:opacity-50 border border-red-200 dark:border-red-900/50 hover:shadow" 
                         onClick={() => handleReject(emp, req)}
                       >
                         {processingId === `${emp.id}-${req.date}-reject` ? '⏳...' : 'Reject'}
@@ -377,7 +487,7 @@ export default function IssuesPage() {
                       </button>
                       <button 
                         disabled={!!processingId}
-                        className="btn-secondary text-red-500 border-red-200 hover:bg-red-50 disabled:opacity-50 disabled:cursor-wait text-xs" 
+                        className="px-4 py-2 rounded-lg text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40 dark:text-red-400 transition-colors shadow-sm disabled:opacity-50 border border-red-200 dark:border-red-900/50 hover:shadow" 
                         onClick={() => handleHRCancel(emp, req)}
                         title="Cancel this request and revert any changes to the roster"
                       >
@@ -410,6 +520,17 @@ export default function IssuesPage() {
           )}
         </div>
       )}
+      <ConfirmDialog 
+        open={confirmConfig.open}
+        title={confirmConfig.title}
+        message={confirmConfig.message}
+        isDestructive={confirmConfig.isDestructive}
+        onConfirm={() => {
+          setConfirmConfig(prev => ({ ...prev, open: false }));
+          confirmConfig.action();
+        }}
+        onCancel={() => setConfirmConfig(prev => ({ ...prev, open: false }))}
+      />
     </div>
   );
 }
