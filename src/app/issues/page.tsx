@@ -113,7 +113,7 @@ export default function IssuesPage() {
 
     if (source.length === 0) return;
 
-    const headers = ['Employee ID', 'Name', 'Date', 'Type', 'Reason', 'Status', 'Submitted At'];
+    const headers = ['Employee ID', 'Name', 'Target Date', 'Current Shift', 'Type', 'Reason', 'Status', 'Date Applied'];
     const rows = source.map(({ emp, req }) => {
       const escapeCsv = (val: any) => {
         if (val == null) return '""';
@@ -122,13 +122,14 @@ export default function IssuesPage() {
       
       let reasonStr = req.reason || '';
       
+      let currentAssignment = getAssignment(roster, emp, req.date);
+      let fromShiftStr = currentAssignment?.shift || emp.defaultShift || 'unknown';
+      let currentShiftLabel = SHIFT_INFO[fromShiftStr as keyof typeof SHIFT_INFO]?.label || fromShiftStr;
+      
       if (req.type === 'shift') {
         if (req.reason && req.reason.startsWith('From:')) {
           reasonStr = `${req.reason} -> To: ${SHIFT_INFO[req.requestedShift as keyof typeof SHIFT_INFO]?.label || req.requestedShift}`;
         } else {
-          let currentAssignment = getAssignment(roster, emp, req.date);
-          let fromShiftStr = currentAssignment?.shift || emp.defaultShift || 'unknown';
-          
           if (req.status === 'approved' && currentAssignment?.shift === req.requestedShift) {
              fromShiftStr = emp.defaultShift || 'unknown';
           }
@@ -148,6 +149,7 @@ export default function IssuesPage() {
         escapeCsv(emp.employeeId || emp.id),
         escapeCsv(emp.name),
         escapeCsv(req.date),
+        escapeCsv(currentShiftLabel),
         escapeCsv(req.type === 'issue' ? 'Reported Issue' : req.type === 'leave' ? 'Leave Request' : req.type === 'off' ? 'Off Day Request' : 'Shift Change Request'),
         escapeCsv(reasonStr),
         escapeCsv(req.status === 'pending' ? 'Pending' : 'Resolved'),
