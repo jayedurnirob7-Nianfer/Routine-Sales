@@ -39,14 +39,14 @@ export async function GET() {
     });
 
     const settings = {
-      siteName: settingsDoc.siteName,
-      logoEmoji: settingsDoc.logoEmoji,
-      logoImage: settingsDoc.logoImage,
+      siteName: settingsDoc?.siteName || 'PXL Sales Routine',
+      logoEmoji: settingsDoc?.logoEmoji || '⬡',
+      logoImage: settingsDoc?.logoImage || '',
     };
 
     const auth = {
-      username: settingsDoc.adminUsername,
-      password: settingsDoc.adminPassword,
+      username: settingsDoc?.adminUsername || '',
+      password: settingsDoc?.adminPassword || '',
     };
 
     return NextResponse.json({
