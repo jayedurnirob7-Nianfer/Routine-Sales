@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
-import { getEmployees, getRoster, saveRoster, saveEmployees, SHIFT_INFO, todayKey, formatDate, get15Days, getNightShiftProgress, invalidateCache, getAssignment, upsertAssignment } from '@/lib/store';
+import { getEmployees, getRoster, saveRoster, saveEmployees, SHIFT_INFO, todayKey, formatDate, get15Days, getNightShiftProgress, invalidateCache, getAssignment, upsertAssignment, isOnLeave } from '@/lib/store';
 import { Employee, RosterData, ShiftType, ShiftRequest } from '@/types';
 import { useAuth } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
@@ -230,6 +230,64 @@ export default function DashboardPage() {
 
   const upcomingDays = getUpcomingDays();
   const todayData = getOffEmployeesByPrevShift(today);
+
+  function downloadNightShiftCSV() {
+    const [year, month] = today.split('-').map(Number);
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const monthName = new Date(year, month - 1, 1).toLocaleDateString('en-US', { month: 'long' });
+    
+    const rows: string[] = [['ID', 'Name', 'Night Date', 'Total']];
+    
+    employees.forEach(emp => {
+      const nightDays: number[] = [];
+      for (let d = 1; d <= daysInMonth; d++) {
+        const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+        const assignment = getAssignment(roster, emp, dateStr);
+        
+        if (assignment && assignment.shift === 'night' && !isOnLeave(roster, emp, dateStr)) {
+          nightDays.push(d);
+        }
+      }
+      
+      if (nightDays.length > 0) {
+        const ranges: string[] = [];
+        let start = nightDays[0];
+        let end = nightDays[0];
+        
+        for (let i = 1; i < nightDays.length; i++) {
+          if (nightDays[i] === end + 1) {
+            end = nightDays[i];
+          } else {
+            ranges.push(start === end ? `${start} ${monthName}` : `${start} ${monthName} - ${end} ${monthName}`);
+            start = nightDays[i];
+            end = nightDays[i];
+          }
+        }
+        ranges.push(start === end ? `${start} ${monthName}` : `${start} ${monthName} - ${end} ${monthName}`);
+        
+        const nightDateStr = ranges.join(', ');
+        const total = nightDays.length;
+        
+        const escapeCSV = (s: string) => `"${String(s).replace(/"/g, '""')}"`;
+        rows.push([
+          escapeCSV(emp.employeeId),
+          escapeCSV(emp.name),
+          escapeCSV(nightDateStr),
+          total.toString()
+        ].join(','));
+      }
+    });
+    
+    const csvContent = rows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `Night_Shifts_${monthName}_${year}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
 
   function isPopoverOpen(empId: string, date: string, shift: ShiftType): boolean {
     if (!popoverTarget) return false;
@@ -485,13 +543,18 @@ export default function DashboardPage() {
           <p className="text-gray-500 dark:text-gray-400 mt-1 font-medium">{new Date(today + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} — Today's Overview</p>
         </div>
         <div className="flex items-center gap-3">
+          {isAdmin && (
+            <button onClick={downloadNightShiftCSV} className="btn-secondary text-xs flex items-center gap-2 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 rounded-xl hover:bg-gray-50 transition-colors shadow-sm">
+              <span className="text-sm">📊</span> Night Shift Report
+            </button>
+          )}
           {isAdmin && pendingIssuesCount > 0 && (
             <Link href="/issues" className="btn-primary text-xs flex items-center gap-2 animate-pulse shadow-[0_0_15px_rgba(239,68,68,0.5)] bg-red-500 hover:bg-red-600 border-none text-white font-bold px-4 py-2 rounded-xl transition-all hover:scale-105 active:scale-95">
               <span className="text-lg">⚠️</span>
               {pendingIssuesCount} Pending {pendingIssuesCount === 1 ? 'Request' : 'Requests'}
             </Link>
           )}
-          <button className="btn-ghost text-xs border border-gray-200 dark:border-gray-700 font-medium" onClick={() => load(true)} title="Refresh">↻ Refresh</button>
+          <button className="btn-ghost text-xs border border-gray-200 dark:border-gray-700 font-medium px-3 py-2 rounded-xl" onClick={() => load(true)} title="Refresh">↻ Refresh</button>
         </div>
       </div>
 

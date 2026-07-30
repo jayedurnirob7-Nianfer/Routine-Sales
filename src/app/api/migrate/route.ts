@@ -1,0 +1,81 @@
+import { NextResponse } from 'next/server';
+import connectToDatabase from '@/lib/mongodb';
+import { Employee } from '@/models/Employee';
+import { Roster } from '@/models/Roster';
+import { Settings } from '@/models/Settings';
+
+const GOOGLE_APP_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyRarIsbzP1lrEOzrtOapLUspxMIPNtZTOVAPQh2K9eva4yPgNA0iIxgquf5vGBcBrY/exec";
+
+// A simplified decoding logic for the role string for raw migration
+function decodeRole(rawRole: string) {
+  let role = String(rawRole ?? '');
+  let profileImage, password, requests;
+  if (role.includes('|REQS:')) { const p = role.split('|REQS:'); role = p[0]; try { requests = JSON.parse(p[1]); } catch {} }
+  if (role.includes('|PWD:')) { const p = role.split('|PWD:'); role = p[0]; password = p[1]; }
+  if (role.includes('|IMG:')) { const p = role.split('|IMG:'); role = p[0]; profileImage = p[1]; }
+  return { role, profileImage, password, requests };
+}
+
+export async function POST() {
+  try {
+    await connectToDatabase();
+
+    const res = await fetch(`${GOOGLE_APP_SCRIPT_URL}?action=getAll&_t=${Date.now()}`);
+    if (!res.ok) throw new Error(`Failed to fetch from Google Sheets: ${res.status}`);
+    const json = await res.json();
+    if (json.status !== 'ok') throw new Error(json.message || 'API error from GS');
+
+    const data = json.data;
+
+    await Employee.deleteMany({});
+    await Roster.deleteMany({});
+    await Settings.deleteMany({});
+
+    if (data.employees && data.employees.length > 0) {
+      const empsToInsert = data.employees.map((e: any) => {
+        const decoded = decodeRole(e.role);
+        return {
+          id: String(e.id ?? ''),
+          name: String(e.name ?? ''),
+          employeeId: String(e.employeeId ?? ''),
+          role: decoded.role,
+          active: true,
+          createdAt: String(e.createdAt ?? ''),
+          weeklyOffDay: typeof e.weeklyOffDay === 'number' ? e.weeklyOffDay : (e.weeklyOffDay ? parseInt(String(e.weeklyOffDay), 10) : undefined),
+          defaultShift: e.defaultShift || 'morning',
+          profileImage: decoded.profileImage,
+          password: decoded.password || '1234',
+          requests: decoded.requests,
+        };
+      });
+      await Employee.insertMany(empsToInsert);
+    }
+
+    if (data.roster) {
+      const rostersToInsert = Object.entries(data.roster).map(([date, assignments]) => ({
+        date,
+        assignments
+      }));
+      if (rostersToInsert.length > 0) {
+        await Roster.insertMany(rostersToInsert);
+      }
+    }
+
+    if (data.settings || data.auth) {
+      await Settings.create({
+        docId: 'global',
+        siteName: data.settings?.siteName || 'PXL Sales Routine',
+        logoEmoji: data.settings?.logoEmoji || '⬡',
+        logoImage: data.settings?.logoImage,
+        adminUsername: data.auth?.username,
+        adminPassword: data.auth?.password,
+      });
+    }
+    
+    return NextResponse.json({ status: 'ok', message: 'Migration successful!' });
+
+  } catch (error: any) {
+    console.error("Migration Error:", error);
+    return NextResponse.json({ status: 'error', message: error.message }, { status: 500 });
+  }
+}

@@ -27,6 +27,9 @@ export default function SettingsPage() {
   const [userPass, setUserPass]   = useState('');
   const [userMsg, setUserMsg]     = useState('');
 
+  const [migrationMsg, setMigrationMsg] = useState('');
+  const [isMigrating, setIsMigrating] = useState(false);
+
   useEffect(() => {
     if (!isAdmin) {
       router.push('/');
@@ -68,6 +71,27 @@ export default function SettingsPage() {
     setUserMsg(ok ? '✅ Username changed successfully!' : '❌ Current password is incorrect.');
     if (ok) { setNewUser(''); setUserPass(''); }
     setTimeout(() => setUserMsg(''), 4000);
+  }
+
+  async function handleMigration() {
+    const conf = confirm('Are you sure you want to pull data from Google Sheets to MongoDB? This will overwrite the current database data.');
+    if (!conf) return;
+    
+    setIsMigrating(true);
+    setMigrationMsg('Migrating...');
+    try {
+      const res = await fetch('/Routine-Sales/api/migrate', { method: 'POST' });
+      const json = await res.json();
+      if (res.ok && json.status === 'ok') {
+        setMigrationMsg('✅ Migration endpoint called successfully. Check server logs.');
+      } else {
+        setMigrationMsg('❌ Migration failed: ' + (json.message || 'Unknown error'));
+      }
+    } catch (e: any) {
+      setMigrationMsg('❌ Error: ' + e.message);
+    } finally {
+      setIsMigrating(false);
+    }
   }
 
   return (
@@ -138,6 +162,18 @@ export default function SettingsPage() {
         </div>
         {userMsg && <p className="text-sm">{userMsg}</p>}
         <button className="btn-primary" onClick={saveUsername}>Change Username</button>
+      </div>
+
+      {/* Migration */}
+      <div className="card p-6 space-y-4 border-amber-200 bg-amber-50 dark:bg-amber-900/20">
+        <h2 className="font-semibold text-lg text-amber-800 dark:text-amber-500">Database Migration</h2>
+        <p className="text-sm text-gray-600 dark:text-gray-400">
+          Use this button to fetch data from the old Google Sheets backend and seed the new MongoDB database.
+        </p>
+        {migrationMsg && <p className="text-sm font-semibold">{migrationMsg}</p>}
+        <button className="btn-primary bg-amber-600 hover:bg-amber-700 text-white border-none" onClick={handleMigration} disabled={isMigrating}>
+          {isMigrating ? 'Migrating...' : 'Migrate from Google Sheets'}
+        </button>
       </div>
     </div>
   );

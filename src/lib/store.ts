@@ -3,7 +3,8 @@ import {
   ShiftInfo, ShiftType, SiteSettings, AdminCredentials, LeaveRecord, ShiftRequest
 } from '@/types';
 
-const API_URL = "https://script.google.com/macros/s/AKfycbyRarIsbzP1lrEOzrtOapLUspxMIPNtZTOVAPQh2K9eva4yPgNA0iIxgquf5vGBcBrY/exec";
+const API_URL = "/Routine-Sales/api/data";
+const GOOGLE_APP_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyRarIsbzP1lrEOzrtOapLUspxMIPNtZTOVAPQh2K9eva4yPgNA0iIxgquf5vGBcBrY/exec";
 
 export const WEEKDAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 
@@ -14,7 +15,7 @@ export const SHIFT_INFO: Record<ShiftType, ShiftInfo> = {
   off:     { type: 'off', label: 'Off Day', time: 'No Shift', color: 'text-gray-600 dark:text-gray-400', bg: 'bg-gray-100 dark:bg-gray-800', border: 'border-gray-200 dark:border-gray-700' },
 };
 
-const LS_KEY = 'rs_all_v2';
+const LS_KEY = 'rs_all_v3';
 const CACHE_TTL = 5 * 60 * 1000;
 
 function lsGet<T>(key: string): { data: T; ts: number } | null {
@@ -59,16 +60,24 @@ function toEmployee(e: Record<string, unknown>): Employee {
     const parts = role.split('|REQS:');
     role = parts[0];
     try { requests = JSON.parse(parts[1]); } catch {}
+  } else {
+    requests = e.requests as any;
   }
+  
   if (role.includes('|PWD:')) {
     const parts = role.split('|PWD:');
     role = parts[0];
     password = parts[1];
+  } else {
+    password = (e.password as string) || '1234';
   }
+  
   if (role.includes('|IMG:')) {
     const parts = role.split('|IMG:');
     role = parts[0];
     profileImage = parts[1];
+  } else {
+    profileImage = e.profileImage as string | undefined;
   }
 
   return {
@@ -178,7 +187,7 @@ async function apiPost(action: string, payload: Record<string, unknown>): Promis
 export async function getEmployees(): Promise<Employee[]> { return (await getAll()).employees; }
 export async function getRoster(): Promise<RosterData> { return (await getAll()).roster; }
 export async function getArchiveRoster(year: number, month: number): Promise<RosterData> {
-  const res = await fetch(`${API_URL}?action=getArchive&year=${year}&month=${month}&_t=${Date.now()}`, { cache: 'no-store' });
+  const res = await fetch(`${GOOGLE_APP_SCRIPT_URL}?action=getArchive&year=${year}&month=${month}&_t=${Date.now()}`, { cache: 'no-store' });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const json = await res.json() as any;
   if (json.status !== 'ok') throw new Error(json.message || 'API error');
@@ -362,12 +371,6 @@ export function getNightShiftProgress(
     
     // On leave -> skip
     if (isOnLeave(roster, employee, dateStr)) continue;
-
-    // Automatically exclude their weekly off day!
-    const dDate = new Date(year, month - 1, d);
-    if (employee.weeklyOffDay !== undefined && dDate.getDay() === employee.weeklyOffDay) {
-      continue;
-    }
 
     if (dateStr < actualToday) {
       completed++;
