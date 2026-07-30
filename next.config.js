@@ -7,8 +7,6 @@ const withPWA = require('@ducanh2912/next-pwa').default({
 const nextConfig = {
   trailingSlash: true,
   images: { unoptimized: true },
-  basePath: '/Routine-Sales',
-  assetPrefix: '/Routine-Sales/',
 };
 
 module.exports = withPWA(nextConfig);
