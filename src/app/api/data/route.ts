@@ -84,7 +84,7 @@ export async function POST(request: Request) {
       const empIds = employees.map((e: any) => e.id);
       await Employee.deleteMany({ id: { $nin: empIds } });
       if (ops.length > 0) {
-        await Employee.bulkWrite(ops);
+        await Employee.bulkWrite(ops as any);
       }
       return NextResponse.json({ status: 'ok' });
     }
@@ -99,7 +99,7 @@ export async function POST(request: Request) {
         }
       }));
       if (ops.length > 0) {
-        await Roster.bulkWrite(ops);
+        await Roster.bulkWrite(ops as any);
       }
       return NextResponse.json({ status: 'ok' });
     }
