@@ -9,8 +9,8 @@ const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
   title: 'PXL Sales Routine',
-  description: 'Sales team shift schedule manager',
-  manifest: '/Routine-Sales/manifest.json',
+  description: 'Manage shift rosters and leave requests',
+  manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',

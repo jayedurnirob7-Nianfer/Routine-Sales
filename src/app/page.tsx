@@ -58,7 +58,7 @@ export default function DashboardPage() {
       setRoster(ros);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Unknown error';
-      setError(`Failed to load from Google Sheets: ${msg}`);
+      setError(`Failed to load from MongoDB: ${msg}`);
     } finally {
       setLoading(false);
     }

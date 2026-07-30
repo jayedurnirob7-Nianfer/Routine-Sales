@@ -80,7 +80,7 @@ export default function SettingsPage() {
     setIsMigrating(true);
     setMigrationMsg('Migrating...');
     try {
-      const res = await fetch('/Routine-Sales/api/migrate', { method: 'POST' });
+      const res = await fetch('/api/migrate', { method: 'POST' });
       const json = await res.json();
       if (res.ok && json.status === 'ok') {
         setMigrationMsg('✅ Migration endpoint called successfully. Check server logs.');

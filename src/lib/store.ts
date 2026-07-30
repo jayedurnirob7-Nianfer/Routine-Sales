@@ -3,7 +3,7 @@ import {
   ShiftInfo, ShiftType, SiteSettings, AdminCredentials, LeaveRecord, ShiftRequest
 } from '@/types';
 
-const API_URL = "/Routine-Sales/api/data";
+const API_URL = "/api/data";
 const GOOGLE_APP_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyRarIsbzP1lrEOzrtOapLUspxMIPNtZTOVAPQh2K9eva4yPgNA0iIxgquf5vGBcBrY/exec";
 
 export const WEEKDAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
