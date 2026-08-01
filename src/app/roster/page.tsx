@@ -147,8 +147,8 @@ export default function RosterPage() {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center space-y-3">
-          <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-          <p className="text-gray-400 text-sm">Loading from MongoDB...</p>
+          <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+          <p className="text-gray-400 text-sm">Loading...</p>
         </div>
       </div>
     );
@@ -243,7 +243,7 @@ export default function RosterPage() {
                     const isPast = !isArchive && date < todayKey();
                     const isToday = !isArchive && date === todayKey();
                     const matchesFilter = filterShift === 'all' || assignment?.shift === filterShift;
-                    const canAssign = isAdmin && !isPast && !isArchive;
+                    const canAssign = isAdmin;
 
                     return (
                       <td key={date} className={`px-2 py-2 text-center ${isToday ? 'bg-teal-50/50 dark:bg-teal-900/10' : ''} ${isPast ? 'opacity-50' : ''}`}>
