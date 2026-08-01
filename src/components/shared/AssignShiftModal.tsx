@@ -77,7 +77,7 @@ export default function AssignShiftModal({ employee, date, currentAssignment, ro
           let finalReason = reason || undefined;
           
           if (shift === 'leave') {
-             finalShift = leaveType === 'full' ? 'off' : halfDayShift;
+             finalShift = halfDayShift;
              finalReason = `LEAVE|${leaveType.toUpperCase()}` + (reason ? `|${reason}` : '');
           }
           
@@ -205,22 +205,20 @@ export default function AssignShiftModal({ employee, date, currentAssignment, ro
               </button>
             </div>
             
-            {leaveType === 'half' && (
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Which Shift?</label>
-                <div className="grid grid-cols-3 gap-1.5">
-                  {(['morning', 'evening', 'night'] as ShiftType[]).map(hs => {
-                    const info = SHIFT_INFO[hs];
-                    return (
-                      <button key={hs} onClick={() => setHalfDayShift(hs)}
-                        className={`px-2 py-1.5 rounded-lg text-xs text-center border transition-all ${halfDayShift === hs ? `${info.bg} ${info.color} ${info.border} font-bold ring-2 ring-offset-1` : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
-                        {info.label}
-                      </button>
-                    )
-                  })}
-                </div>
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Which Shift?</label>
+              <div className="grid grid-cols-3 gap-1.5">
+                {(['morning', 'evening', 'night'] as ShiftType[]).map(hs => {
+                  const info = SHIFT_INFO[hs];
+                  return (
+                    <button key={hs} onClick={() => setHalfDayShift(hs)}
+                      className={`px-2 py-1.5 rounded-lg text-xs text-center border transition-all ${halfDayShift === hs ? `${info.bg} ${info.color} ${info.border} font-bold ring-2 ring-offset-1` : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
+                      {info.label}
+                    </button>
+                  )
+                })}
               </div>
-            )}
+            </div>
           </div>
         )}
 
