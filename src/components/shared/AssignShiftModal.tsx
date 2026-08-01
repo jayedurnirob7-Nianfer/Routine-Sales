@@ -87,7 +87,7 @@ export default function AssignShiftModal({ employee, date, currentAssignment, ro
             effectiveFrom: fromDate,
             effectiveTo:   toDate,
             reason: finalReason,
-          });
+          }, employee);
           current.setDate(current.getDate() + 1);
         }
 

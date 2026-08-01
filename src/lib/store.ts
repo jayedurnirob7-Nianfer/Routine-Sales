@@ -230,13 +230,18 @@ export function getAssignment(roster: RosterData, employee: Employee, date: stri
   return (roster[date] ?? []).find(a => a.employeeId === employee.id || a.employeeId === employee.employeeId);
 }
 
-export function upsertAssignmentLocal(roster: RosterData, date: string, assignment: ShiftAssignment): RosterData {
+export function upsertAssignmentLocal(roster: RosterData, date: string, assignment: ShiftAssignment, empObj?: Employee): RosterData {
   let empId1 = assignment.employeeId;
   let empId2 = assignment.employeeId;
-  if (memCache) {
+  
+  if (empObj) {
+    empId1 = empObj.id;
+    empId2 = empObj.employeeId;
+  } else if (memCache) {
     const emp = memCache.employees.find(e => e.id === assignment.employeeId || e.employeeId === assignment.employeeId);
     if (emp) { empId1 = emp.id; empId2 = emp.employeeId; }
   }
+  
   const others = (roster[date] ?? []).filter(a => a.employeeId !== empId1 && a.employeeId !== empId2);
   return { ...roster, [date]: [...others, assignment] };
 }
