@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { Employee, ShiftType, RosterData } from '@/types';
+import { Employee, ShiftType, RosterData, ShiftAssignment } from '@/types';
 import {
   SHIFT_INFO, WEEKDAYS,
   upsertAssignmentLocal, saveRoster,
@@ -11,7 +11,7 @@ import { ConfirmDialog } from '@/components/shared/Dialogs';
 interface Props {
   employee: Employee;
   date: string;
-  currentShift?: ShiftType;
+  currentAssignment?: ShiftAssignment;
   roster: RosterData;
   onSave(newRoster: RosterData, updatedEmployee?: Employee): void;
   onClose(): void;
@@ -19,8 +19,11 @@ interface Props {
 
 type OffMode = 'weekly' | 'single' | null;
 
-export default function AssignShiftModal({ employee, date, currentShift, roster, onSave, onClose }: Props) {
-  const [shift, setShift]     = useState<ShiftType>(currentShift ?? 'morning');
+export default function AssignShiftModal({ employee, date, currentAssignment, roster, onSave, onClose }: Props) {
+  const isExistingLeave = currentAssignment?.reason?.startsWith('LEAVE|');
+  const [shift, setShift]     = useState<ShiftType | 'leave'>(isExistingLeave ? 'leave' : (currentAssignment?.shift ?? 'morning'));
+  const [leaveType, setLeaveType] = useState<'full' | 'half'>(currentAssignment?.reason?.includes('HALF') ? 'half' : 'full');
+  const [halfDayShift, setHalfDayShift] = useState<ShiftType>(currentAssignment?.shift && currentAssignment.shift !== 'off' ? currentAssignment.shift : 'morning');
   const [fromDate, setFrom]   = useState(date);
   const [toDate, setTo]       = useState(date);
   const [reason, setReason]   = useState('');
@@ -70,12 +73,20 @@ export default function AssignShiftModal({ employee, date, currentShift, roster,
           const m = String(current.getMonth() + 1).padStart(2, '0');
           const d = String(current.getDate()).padStart(2, '0');
           
+          let finalShift = shift;
+          let finalReason = reason || undefined;
+          
+          if (shift === 'leave') {
+             finalShift = leaveType === 'full' ? 'off' : halfDayShift;
+             finalReason = `LEAVE|${leaveType.toUpperCase()}` + (reason ? `|${reason}` : '');
+          }
+          
           updated = upsertAssignmentLocal(updated, `${y}-${m}-${d}`, {
             employeeId:    employee.id,
-            shift,
+            shift: finalShift as ShiftType,
             effectiveFrom: fromDate,
             effectiveTo:   toDate,
-            reason: reason || undefined,
+            reason: finalReason,
           });
           current.setDate(current.getDate() + 1);
         }
@@ -152,8 +163,20 @@ export default function AssignShiftModal({ employee, date, currentShift, roster,
         <div>
           <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Shift Type</label>
           <div className="grid grid-cols-2 gap-2">
-            {(['morning', 'evening', 'night', 'off'] as ShiftType[]).map(s => {
-              const info = SHIFT_INFO[s];
+            {(['morning', 'evening', 'night', 'off', 'leave'] as const).map(s => {
+              if (s === 'leave') {
+                return (
+                  <button key={s} onClick={() => { setShift(s); setOffMode(null); }}
+                    className={`px-3 py-2.5 rounded-xl border-2 text-left transition-all
+                      ${shift === s
+                        ? 'bg-amber-50 text-amber-900 border-amber-300 dark:bg-amber-900/30 dark:text-amber-100 dark:border-amber-700 font-semibold'
+                        : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'}`}>
+                    <div className="text-sm font-medium">✈️ Leave</div>
+                    <div className="text-xs opacity-60">Full or Half Day</div>
+                  </button>
+                );
+              }
+              const info = SHIFT_INFO[s as ShiftType];
               return (
                 <button key={s} onClick={() => { setShift(s); setOffMode(null); }}
                   className={`px-3 py-2.5 rounded-xl border-2 text-left transition-all
@@ -167,6 +190,39 @@ export default function AssignShiftModal({ employee, date, currentShift, roster,
             })}
           </div>
         </div>
+
+        {shift === 'leave' && (
+          <div className="space-y-3">
+            <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500">Leave Type</label>
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={() => setLeaveType('full')}
+                className={`p-3 rounded-xl border-2 text-center transition-all ${leaveType === 'full' ? 'border-amber-500 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 font-semibold' : 'border-gray-200 dark:border-gray-700 hover:border-gray-400'}`}>
+                Full Day
+              </button>
+              <button onClick={() => setLeaveType('half')}
+                className={`p-3 rounded-xl border-2 text-center transition-all ${leaveType === 'half' ? 'border-amber-500 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 font-semibold' : 'border-gray-200 dark:border-gray-700 hover:border-gray-400'}`}>
+                Half Day
+              </button>
+            </div>
+            
+            {leaveType === 'half' && (
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Which Shift?</label>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {(['morning', 'evening', 'night'] as ShiftType[]).map(hs => {
+                    const info = SHIFT_INFO[hs];
+                    return (
+                      <button key={hs} onClick={() => setHalfDayShift(hs)}
+                        className={`px-2 py-1.5 rounded-lg text-xs text-center border transition-all ${halfDayShift === hs ? `${info.bg} ${info.color} ${info.border} font-bold ring-2 ring-offset-1` : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
+                        {info.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {showOffOptions && (
           <div className="space-y-3">
@@ -254,7 +310,22 @@ export default function AssignShiftModal({ employee, date, currentShift, roster,
           </div>
         )}
 
-        {!showOffOptions && (
+        {(!showOffOptions && shift !== 'leave') && (
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">From</label>
+              <input type="date" className="input" value={fromDate}
+                onChange={e => { setFrom(e.target.value); if (e.target.value > toDate) setTo(e.target.value); }} />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">To</label>
+              <input type="date" className="input" value={toDate} min={fromDate}
+                onChange={e => setTo(e.target.value)} />
+            </div>
+          </div>
+        )}
+
+        {shift === 'leave' && (
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">From</label>
@@ -294,6 +365,8 @@ export default function AssignShiftModal({ employee, date, currentShift, roster,
                 ? `Set ${WEEKDAYS[selectedWeekday]}s as Off`
                 : shift === 'off' && offMode === 'single'
                 ? 'Set Off — This Day Only'
+                : shift === 'leave'
+                ? `Assign ${leaveType === 'full' ? 'Full Day' : 'Half Day'} Leave`
                 : 'Assign Shift'}
             </button>
           </div>

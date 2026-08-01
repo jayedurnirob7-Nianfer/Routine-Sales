@@ -155,7 +155,8 @@ export default function DailyShiftBreakdownModal({ date, roster, employees, onCl
                           <div className="flex flex-wrap gap-2">
                             {leaveEmps.map(emp => {
                                const assignment = getAssignment(roster, emp, date);
-                               const reason = assignment?.reason?.split('|')[3] || 'Leave';
+                               const parts = assignment?.reason?.split('|') || [];
+                               const reason = parts.length >= 4 ? parts[3] : parts.length === 3 ? parts[2] : (parts[1] === 'FULL' || parts[1] === 'HALF') ? (parts[1] + ' Day') : (parts[1] || 'Leave');
                                return (
                                  <div key={emp.id} className="bg-amber-50/50 dark:bg-amber-900/10 pl-1 pr-3 py-1 rounded-lg border border-amber-200 dark:border-amber-900/50 flex items-center gap-2">
                                    <div className="w-7 h-7 rounded-full overflow-hidden shrink-0 bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center text-[10px] font-bold text-amber-600">
@@ -189,7 +190,8 @@ export default function DailyShiftBreakdownModal({ date, roster, employees, onCl
                 <div className="flex flex-wrap gap-2 md:ml-4 border-l-0 md:border-l border-amber-200 dark:border-amber-900/50 md:pl-4">
                   {unsortedLeave.map(emp => {
                      const assignment = getAssignment(roster, emp, date);
-                     const reason = assignment?.reason?.split('|')[3] || 'Leave';
+                     const parts = assignment?.reason?.split('|') || [];
+                     const reason = parts.length >= 4 ? parts[3] : parts.length === 3 ? parts[2] : (parts[1] === 'FULL' || parts[1] === 'HALF') ? (parts[1] + ' Day') : (parts[1] || 'Leave');
                      return (
                        <div key={emp.id} className="bg-white dark:bg-gray-900 pl-1 pr-3 py-1 rounded-lg shadow-sm border border-amber-200 dark:border-amber-900/50 flex items-center gap-2">
                          <div className="w-7 h-7 rounded-full overflow-hidden shrink-0 bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center text-[10px] font-bold text-amber-600">

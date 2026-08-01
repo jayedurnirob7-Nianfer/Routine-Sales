@@ -249,7 +249,7 @@ export default function RosterPage() {
                       <td key={date} className={`px-2 py-2 text-center ${isToday ? 'bg-teal-50/50 dark:bg-teal-900/10' : ''} ${isPast ? 'opacity-50' : ''}`}>
                         {assignment && matchesFilter ? (
                           <button disabled={!canAssign} onClick={() => canAssign && setAssignTarget({ emp, date })} className="w-full disabled:cursor-default">
-                            <ShiftBadge shift={assignment.shift} isLeave={assignment.reason?.startsWith('LEAVE|')} />
+                            <ShiftBadge shift={assignment.shift} isLeave={assignment.reason?.startsWith('LEAVE|')} reason={assignment.reason} />
                           </button>
                         ) : !assignment && filterShift === 'all' ? (
                           canAssign ? (
@@ -289,7 +289,7 @@ export default function RosterPage() {
         <AssignShiftModal
           employee={assignTarget.emp}
           date={assignTarget.date}
-          currentShift={getAssignment(roster, assignTarget.emp, assignTarget.date)?.shift}
+          currentAssignment={getAssignment(activeRoster, assignTarget.emp, assignTarget.date) as any}
           roster={roster}
           onSave={(newRoster, updatedEmp) => {
             setRoster(newRoster);
