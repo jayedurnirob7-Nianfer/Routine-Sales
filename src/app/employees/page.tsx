@@ -735,7 +735,7 @@ export default function EmployeesPage() {
         <AssignShiftModal
           employee={assignTarget.emp}
           date={assignTarget.date}
-          currentShift={getAssignment(roster, assignTarget.emp, assignTarget.date)?.shift}
+          currentAssignment={getAssignment(roster, assignTarget.emp, assignTarget.date)}
           roster={roster}
           onSave={(newRoster) => { setRoster(newRoster); }}
           onClose={() => setAssignTarget(null)}

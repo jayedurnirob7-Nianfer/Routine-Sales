@@ -92,7 +92,7 @@ export default function RosterPage() {
         // For archived members, only show them if they have at least one assigned shift in the visible days
         const hasShift = days.some(dateKey => {
           const dayAssignments = activeRoster[dateKey] || [];
-          return dayAssignments.some(a => (a.employeeId === e.id || a.employeeId === e.employeeId) && a.shift !== 'unassigned');
+          return dayAssignments.some(a => a.employeeId === e.id || a.employeeId === e.employeeId);
         });
         return searchMatch && hasShift;
       }
