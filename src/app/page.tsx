@@ -54,7 +54,7 @@ export default function DashboardPage() {
     setError(null);
     try {
       const [emps, ros] = await Promise.all([getEmployees(), getRoster()]);
-      setEmployees(emps);
+      setEmployees(emps.filter(e => e.active !== false));
       setRoster(ros);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Unknown error';
@@ -68,7 +68,7 @@ export default function DashboardPage() {
     try {
       invalidateCache();
       const [emps, ros] = await Promise.all([getEmployees(), getRoster()]);
-      setEmployees(emps);
+      setEmployees(emps.filter(e => e.active !== false));
       setRoster(ros);
     } catch (e) {
       // Silent fail for background poll

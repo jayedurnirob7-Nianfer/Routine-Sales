@@ -19,6 +19,7 @@ export default function RosterPage() {
   const [assignTarget, setAssignTarget] = useState<{ emp: Employee; date: string } | null>(null);
   const [filterShift, setFilterShift]   = useState<ShiftType | 'all'>('all');
   const [search, setSearch]             = useState('');
+  const [showArchived, setShowArchived] = useState(false);
   const [archiveMonth, setArchiveMonth] = useState<string>('current');
   const [archiveRoster, setArchiveRoster] = useState<RosterData | null>(null);
   const [loadingArchive, setLoadingArchive] = useState(false);
@@ -82,7 +83,22 @@ export default function RosterPage() {
   useEffect(() => { load(); }, [load]);
 
   const filteredEmployees = employees
-    .filter(e => search === '' || e.name.toLowerCase().includes(search.toLowerCase()) || e.employeeId.toLowerCase().includes(search.toLowerCase()));
+    .filter(e => {
+      const searchMatch = search === '' || e.name.toLowerCase().includes(search.toLowerCase()) || e.employeeId.toLowerCase().includes(search.toLowerCase());
+      const isActive = e.active !== false;
+      
+      if (showArchived) {
+        if (isActive) return false;
+        // For archived members, only show them if they have at least one assigned shift in the visible days
+        const hasShift = days.some(dateKey => {
+          const dayAssignments = activeRoster[dateKey] || [];
+          return dayAssignments.some(a => (a.employeeId === e.id || a.employeeId === e.employeeId) && a.shift !== 'unassigned');
+        });
+        return searchMatch && hasShift;
+      }
+      
+      return searchMatch && isActive;
+    });
 
   // Calendar rendering logic
   const renderCalendar = () => {
@@ -113,7 +129,7 @@ export default function RosterPage() {
             const isToday = dateStr === todayKey();
             // Count total assignments for this day
             let totalAssigned = 0;
-            employees.forEach(emp => {
+            filteredEmployees.forEach(emp => {
               const a = getAssignment(activeRoster, emp, dateStr);
               if (a && a.shift && !['off', 'leave'].includes(a.shift)) {
                 totalAssigned++;
@@ -170,40 +186,53 @@ export default function RosterPage() {
   return (
     <div className="space-y-4">
       <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-        <h1 className="text-2xl font-bold w-full md:w-auto text-center md:text-left shrink-0">Roster</h1>
-        <div className="flex bg-gray-100 dark:bg-gray-800 p-1 rounded-xl shrink-0">
-          <button 
-            className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${viewMode === 'table' ? 'bg-white dark:bg-gray-700 shadow-sm text-teal-600' : 'text-gray-500'}`}
-            onClick={() => setViewMode('table')}
-          >Matrix View</button>
-          <button 
-            className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${viewMode === 'calendar' ? 'bg-white dark:bg-gray-700 shadow-sm text-teal-600' : 'text-gray-500'}`}
-            onClick={() => setViewMode('calendar')}
-          >Calendar View</button>
+        <div className="flex items-center gap-4 w-full md:w-auto justify-between md:justify-start">
+          <h1 className="text-2xl font-bold">Roster</h1>
+          <div className="flex bg-gray-100 dark:bg-gray-800 p-1 rounded-xl shrink-0">
+            <button 
+              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${viewMode === 'table' ? 'bg-white dark:bg-gray-700 shadow-sm text-teal-600' : 'text-gray-500'}`}
+              onClick={() => setViewMode('table')}
+            >Matrix</button>
+            <button 
+              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${viewMode === 'calendar' ? 'bg-white dark:bg-gray-700 shadow-sm text-teal-600' : 'text-gray-500'}`}
+              onClick={() => setViewMode('calendar')}
+            >Calendar</button>
+          </div>
         </div>
-        <div className="flex flex-wrap items-center justify-center gap-2 flex-1 w-full">
-          <input className="input w-full max-w-xs md:w-44" placeholder="Search employee…" value={search} onChange={e => setSearch(e.target.value)} />
+        
+        <div className="flex items-center gap-2 w-full md:w-auto">
           <select 
-            className="input text-xs w-full sm:w-auto" 
+            className="input text-sm py-1.5 w-full md:w-48 font-medium shadow-sm" 
             value={archiveMonth} 
             onChange={e => setArchiveMonth(e.target.value)}
           >
             {monthOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
           </select>
-          <div className="flex flex-wrap justify-center gap-1">
-            {(['all', ...SHIFTS] as const).map(s => {
-              const info = s !== 'all' ? SHIFT_INFO[s] : null;
-              return (
-                <button
-                  key={s} onClick={() => setFilterShift(s)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition-colors
-                    ${filterShift === s ? info ? `${info.bg} ${info.color} ${info.border}` : 'bg-gray-800 text-white border-gray-800' : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
-                   {s === 'all' ? 'All' : info!.label}
-                </button>
-              );
-            })}
+          <button className="btn-ghost text-sm border border-gray-200 dark:border-gray-700 shrink-0 px-3 py-1.5 shadow-sm bg-white dark:bg-gray-800" onClick={() => load(true)} title="Refresh">↻</button>
+        </div>
+      </div>
+
+      <div className="flex flex-col lg:flex-row items-center justify-between gap-4 bg-gray-50/80 dark:bg-gray-900/50 p-3 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
+        <div className="flex items-center gap-2 w-full lg:w-auto">
+          <input className="input w-full lg:w-56 text-sm py-1.5" placeholder="Search employee…" value={search} onChange={e => setSearch(e.target.value)} />
+          <div className="flex bg-white dark:bg-gray-800 p-1 rounded-lg border border-gray-200 dark:border-gray-700 shrink-0">
+            <button onClick={() => setShowArchived(false)} className={`text-xs font-bold px-3 py-1 rounded-md transition-all ${!showArchived ? 'bg-teal-50 dark:bg-teal-500/20 text-teal-600 dark:text-teal-300' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}>Active</button>
+            <button onClick={() => setShowArchived(true)} className={`text-xs font-bold px-3 py-1 rounded-md transition-all ${showArchived ? 'bg-amber-50 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}>Past</button>
           </div>
-          <button className="btn-ghost text-xs border border-gray-200 dark:border-gray-700 mt-2 sm:mt-0" onClick={() => load(true)} title="Refresh">↻ Refresh</button>
+        </div>
+
+        <div className="flex flex-wrap justify-center lg:justify-end gap-1.5 w-full lg:w-auto">
+          {(['all', ...SHIFTS] as const).map(s => {
+            const info = s !== 'all' ? SHIFT_INFO[s] : null;
+            return (
+              <button
+                key={s} onClick={() => setFilterShift(s)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all
+                  ${filterShift === s ? info ? `${info.bg} ${info.color} ${info.border} shadow-sm` : 'bg-gray-800 text-white border-gray-800 dark:bg-gray-100 dark:text-gray-900 dark:border-gray-100 shadow-sm' : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:bg-white dark:hover:bg-gray-800 bg-transparent'}`}>
+                 {s === 'all' ? 'All Shifts' : info!.label}
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -246,19 +275,19 @@ export default function RosterPage() {
                     const canAssign = isAdmin;
 
                     return (
-                      <td key={date} className={`px-2 py-2 text-center ${isToday ? 'bg-teal-50/50 dark:bg-teal-900/10' : ''} ${isPast ? 'opacity-50' : ''}`}>
-                        {assignment && matchesFilter ? (
-                          <button disabled={!canAssign} onClick={() => canAssign && setAssignTarget({ emp, date })} className="w-full disabled:cursor-default">
+                      <td key={date} className={`px-2 py-2 text-center relative group ${isToday ? 'bg-teal-50/50 dark:bg-teal-900/10' : ''} ${isPast ? 'opacity-50' : ''}`}>
+                        {assignment ? (
+                          <button 
+                            disabled={!canAssign} 
+                            onClick={() => canAssign && setAssignTarget({ emp, date })} 
+                            className={`w-full disabled:cursor-default transition-all duration-300 ${filterShift !== 'all' && !matchesFilter ? 'opacity-20 grayscale hover:opacity-100 hover:grayscale-0' : filterShift !== 'all' && matchesFilter ? 'scale-110 shadow-md relative z-10' : 'hover:scale-105 relative z-10'}`}
+                          >
                             <ShiftBadge shift={assignment.shift} isLeave={assignment.reason?.startsWith('LEAVE|')} reason={assignment.reason} />
                           </button>
-                        ) : !assignment && filterShift === 'all' ? (
-                          canAssign ? (
-                            <button onClick={() => setAssignTarget({ emp, date })} className="w-full h-7 rounded-lg border border-dashed border-gray-200 dark:border-gray-700 text-gray-300 dark:text-gray-700 hover:border-teal-400 hover:text-teal-500 transition-colors text-xs">+</button>
-                          ) : (
-                            <span className="text-gray-200 dark:text-gray-700">—</span>
-                          )
+                        ) : filterShift === 'all' && canAssign ? (
+                          <button onClick={() => setAssignTarget({ emp, date })} className="w-full h-7 rounded-lg border border-dashed border-gray-200 dark:border-gray-700 text-gray-300 dark:text-gray-700 hover:border-teal-400 hover:text-teal-500 hover:bg-teal-50 dark:hover:bg-gray-800 transition-colors text-xs opacity-0 group-hover:opacity-100">+</button>
                         ) : (
-                          <span className="text-gray-200 dark:text-gray-700">—</span>
+                          <span className="text-gray-200 dark:text-gray-800/50 text-xs">—</span>
                         )}
                       </td>
                     );
@@ -290,9 +319,14 @@ export default function RosterPage() {
           employee={assignTarget.emp}
           date={assignTarget.date}
           currentAssignment={getAssignment(activeRoster, assignTarget.emp, assignTarget.date) as any}
-          roster={roster}
+          roster={activeRoster}
+          isArchive={isArchive}
           onSave={(newRoster, updatedEmp) => {
-            setRoster(newRoster);
+            if (isArchive) {
+              setArchiveRoster(newRoster);
+            } else {
+              setRoster(newRoster);
+            }
             if (updatedEmp) {
               const updated = employees.map(e => e.id === updatedEmp.id ? updatedEmp : e);
               saveEmployees(updated);
@@ -307,7 +341,7 @@ export default function RosterPage() {
         <DailyShiftBreakdownModal
           date={selectedCalendarDate}
           roster={activeRoster}
-          employees={employees}
+          employees={filteredEmployees}
           onClose={() => setSelectedCalendarDate(null)}
         />
       )}

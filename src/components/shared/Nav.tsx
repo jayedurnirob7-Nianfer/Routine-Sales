@@ -71,7 +71,7 @@ export default function Nav() {
 
   let allLinks: {href: string, label: string}[] = [];
   if (isAdmin) {
-    allLinks = [...links, { href: '/issues', label: 'Requests & Issues' }, { href: '/settings', label: 'Settings' }];
+    allLinks = [...links, { href: '/sandbox', label: 'Sandbox' }, { href: '/issues', label: 'Requests & Issues' }, { href: '/settings', label: 'Settings' }];
   } else if (employeeUser) {
     allLinks = [{ href: '/my-schedule', label: 'My Schedule' }];
   } else {
@@ -118,15 +118,18 @@ export default function Nav() {
         </Link>
 
         <div className="hidden md:flex items-center gap-1">
-          {mounted && allLinks.map(l => (
-            <Link key={l.href} href={l.href}
-              className={`px-3 py-1.5 rounded-xl text-sm font-medium transition-colors relative flex items-center gap-1 ${pathname === l.href ? 'bg-teal-50 dark:bg-teal-900/40 text-teal-600 dark:text-teal-400' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'}`}>
-              {l.label}
-              {l.href === '/issues' && pendingIssueCount > 0 && (
-                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.6)] border border-white dark:border-gray-900"></span>
-              )}
-            </Link>
-          ))}
+          {mounted && allLinks.map(l => {
+            const isActive = l.href === '/' ? pathname === '/' : pathname.startsWith(l.href);
+            return (
+              <Link key={l.href} href={l.href}
+                className={`px-3 py-1.5 rounded-xl text-sm font-medium transition-colors relative flex items-center gap-1 ${isActive ? 'bg-teal-50 dark:bg-teal-500/20 text-teal-600 dark:text-teal-300 ring-1 ring-teal-500/30' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'}`}>
+                {l.label}
+                {l.href === '/issues' && pendingIssueCount > 0 && (
+                  <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.6)] border border-white dark:border-gray-900"></span>
+                )}
+              </Link>
+            );
+          })}
         </div>
 
         <div className="flex items-center gap-2">

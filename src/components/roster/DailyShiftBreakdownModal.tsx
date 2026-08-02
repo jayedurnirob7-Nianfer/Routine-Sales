@@ -39,15 +39,6 @@ export default function DailyShiftBreakdownModal({ date, roster, employees, onCl
     
     if (assignment?.reason?.startsWith('OFF|')) {
       prevShift = assignment.reason.split('|')[1] as ShiftType;
-    } else {
-      for (let i = 1; i <= 7; i++) {
-        const pastDate = prevDateKeyN(date, i);
-        const pastAssignment = getAssignment(roster, emp, pastDate);
-        if (pastAssignment && TODAY_SHIFTS.includes(pastAssignment.shift)) {
-          prevShift = pastAssignment.shift;
-          break;
-        }
-      }
     }
 
     if (!prevShift) {

@@ -85,7 +85,7 @@ function toEmployee(e: Record<string, unknown>): Employee {
     name:         String(e.name         ?? ''),
     employeeId:   String(e.employeeId   ?? ''),
     role:         role,
-    active:       true,
+    active:       e.active !== false,
     createdAt:    toISODate(String(e.createdAt ?? '')),
     weeklyOffDay: typeof e.weeklyOffDay === 'number' ? e.weeklyOffDay : (e.weeklyOffDay ? parseInt(String(e.weeklyOffDay), 10) : undefined),
     defaultShift: (e.defaultShift as ShiftType) || 'morning',
@@ -208,7 +208,7 @@ export async function saveEmployees(employees: Employee[]): Promise<void> {
     if (e.profileImage) encodedRole += `|IMG:${e.profileImage}`;
     if (e.password) encodedRole += `|PWD:${e.password}`;
     if (e.requests && Object.keys(e.requests).length > 0) encodedRole += `|REQS:${JSON.stringify(e.requests)}`;
-    return { ...e, role: encodedRole };
+    return { ...e, role: encodedRole, active: e.active };
   });
   await apiPost('saveEmployees', { employees: payload });
 }
@@ -220,6 +220,14 @@ export async function saveRoster(roster: RosterData): Promise<void> {
 export async function saveSiteSettings(settings: SiteSettings): Promise<void> {
   if (memCache) { memCache = { ...memCache, settings }; lsSet(LS_KEY, memCache); }
   await apiPost('saveSettings', { settings });
+}
+export async function saveArchiveRoster(roster: RosterData, dateStr: string): Promise<void> {
+  const [year, month] = dateStr.split('-').map(Number);
+  await fetch('/api/archive', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ roster, year, month }),
+  });
 }
 export async function saveAdminCreds(creds: AdminCredentials): Promise<void> {
   if (memCache) { memCache = { ...memCache, auth: creds }; lsSet(LS_KEY, memCache); }
@@ -246,14 +254,18 @@ export function upsertAssignmentLocal(roster: RosterData, date: string, assignme
   return { ...roster, [date]: [...others, assignment] };
 }
 
-export async function upsertAssignment(roster: RosterData, date: string, assignment: ShiftAssignment): Promise<RosterData> {
+export async function upsertAssignment(roster: RosterData, date: string, assignment: ShiftAssignment, isArchive = false): Promise<RosterData> {
   const next = upsertAssignmentLocal(roster, date, assignment);
-  await saveRoster(next);
+  if (isArchive) {
+    await saveArchiveRoster(next, date);
+  } else {
+    await saveRoster(next);
+  }
   return next;
 }
 
 export async function applyWeeklyOffDay(
-  roster: RosterData, employee: Employee, offWeekday: number, year: number, month: number, startDay = 1, offReason?: string
+  roster: RosterData, employee: Employee, offWeekday: number, year: number, month: number, startDay = 1, offReason?: string, isArchive = false
 ): Promise<RosterData> {
   const days = new Date(year, month, 0).getDate();
   let updated = { ...roster };
@@ -270,18 +282,23 @@ export async function applyWeeklyOffDay(
       effectiveTo: existing ? (existing.effectiveTo || dateStr) : dateStr,
       reason: isOff && offReason ? offReason : (existing ? existing.reason : undefined),
       isOffDayOverride: isOff ? true : (existing ? existing.isOffDayOverride : false),
-    });
+    }, employee);
   }
-  await saveRoster(updated);
+  if (isArchive) {
+    const sampleDate = `${year}-${String(month).padStart(2,'0')}-01`;
+    await saveArchiveRoster(updated, sampleDate);
+  } else {
+    await saveRoster(updated);
+  }
   return updated;
 }
 
 export async function overrideSingleDay(
-  roster: RosterData, employee: Employee, date: string, shift: ShiftType, reason?: string,
+  roster: RosterData, employee: Employee, date: string, shift: ShiftType, reason?: string, isArchive = false
 ): Promise<RosterData> {
   return upsertAssignment(roster, date, {
     employeeId: employee.id, shift, effectiveFrom: date, effectiveTo: date, reason, isOffDayOverride: true,
-  });
+  }, isArchive);
 }
 
 export function getLeaveOnDate(roster: RosterData, employee: Employee, dateStr: string): LeaveRecord | null {

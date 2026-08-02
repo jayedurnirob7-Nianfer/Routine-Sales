@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
-import { getEmployees, saveEmployees, getRoster, saveRoster, getActiveLeave, SHIFT_INFO, todayKey, invalidateCache, getNightShiftProgress, getAssignment } from '@/lib/store';
+import { getEmployees, saveEmployees, getRoster, saveRoster, getActiveLeave, SHIFT_INFO, todayKey, invalidateCache, getNightShiftProgress, getAssignment, getArchiveRoster } from '@/lib/store';
 import { Employee, RosterData, ShiftType } from '@/types';
 import { useAuth } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
@@ -23,6 +23,11 @@ export default function EmployeesPage() {
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState<string | null>(null);
 
+  const [archiveMonth, setArchiveMonth] = useState<string>('current');
+  const [archiveRoster, setArchiveRoster] = useState<RosterData | null>(null);
+  const [loadingArchive, setLoadingArchive] = useState(false);
+
+  const [showArchived, setShowArchived] = useState(false);
   const [search, setSearch]       = useState('');
   const [selected, setSelected]   = useState<Employee | null>(null);
   const [isAdding, setIsAdding]   = useState(false);
@@ -64,6 +69,32 @@ export default function EmployeesPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  const monthOptions = [{ value: 'current', label: 'Current Roster' }];
+  const dObj = new Date();
+  dObj.setDate(1);
+  for (let i = 1; i <= 12; i++) {
+    dObj.setMonth(dObj.getMonth() - 1);
+    const mStr = `${dObj.getFullYear()}-${String(dObj.getMonth() + 1).padStart(2, '0')}`;
+    const label = dObj.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    monthOptions.push({ value: mStr, label });
+  }
+
+  const isArchive = archiveMonth !== 'current';
+  const activeRoster: RosterData = isArchive ? (archiveRoster || {}) : roster;
+
+  useEffect(() => {
+    if (archiveMonth === 'current') {
+      setArchiveRoster(null);
+      return;
+    }
+    const [y, m] = archiveMonth.split('-').map(Number);
+    setLoadingArchive(true);
+    getArchiveRoster(y, m)
+      .then(setArchiveRoster)
+      .catch(err => alert("Failed to load archive: " + err.message))
+      .finally(() => setLoadingArchive(false));
+  }, [archiveMonth]);
+
   useEffect(() => {
     if (employees.length > 0 && typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
@@ -78,7 +109,11 @@ export default function EmployeesPage() {
     }
   }, [employees, selected]);
 
-  const filtered = employees.filter(e => search === '' || e.name.toLowerCase().includes(search.toLowerCase()) || e.employeeId.toLowerCase().includes(search.toLowerCase()));
+  const filtered = employees.filter(e => {
+    const searchMatch = search === '' || e.name.toLowerCase().includes(search.toLowerCase()) || e.employeeId.toLowerCase().includes(search.toLowerCase());
+    const isActive = e.active !== false;
+    return searchMatch && (showArchived ? !isActive : isActive);
+  });
 
   function openEdit(emp: Employee) {
     setEditing(emp);
@@ -126,6 +161,51 @@ export default function EmployeesPage() {
           if (selected?.id === id) setSelected(null);
         } catch (e: unknown) {
           setAlertConfig({ open: true, message: `Remove failed: ${e instanceof Error ? e.message : 'Unknown error'}` });
+        } finally {
+          setSaving(false);
+        }
+      }
+    });
+  }
+
+  function archive(emp: Employee) {
+    setConfirmConfig({
+      open: true,
+      title: 'Archive Employee',
+      message: 'Are you sure you want to archive this employee? They will be moved to Past Members and their data will be sent to Google Sheets.',
+      isDestructive: false,
+      onConfirm: async () => {
+        setConfirmConfig(p => ({ ...p, open: false }));
+        setSaving(true);
+        try {
+          // 1. Mark as inactive in DB
+          const updated = employees.map(e => e.id === emp.id ? { ...e, active: false } : e);
+          await saveEmployees(updated);
+          setEmployees(updated);
+          if (selected?.id === emp.id) setSelected(null);
+
+          // 2. Gather all their assignments and POST to /api/archive
+          const history: any[] = [];
+          Object.keys(roster).forEach(date => {
+            const assignment = roster[date].find(a => a.employeeId === emp.id || a.employeeId === emp.employeeId);
+            if (assignment) {
+              history.push({ date, ...assignment });
+            }
+          });
+
+          await fetch('/api/archive', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'archiveEmployee',
+              employee: emp,
+              history
+            })
+          });
+
+          setAlertConfig({ open: true, message: 'Employee successfully archived.' });
+        } catch (e: unknown) {
+          setAlertConfig({ open: true, message: `Archive failed: ${e instanceof Error ? e.message : 'Unknown error'}` });
         } finally {
           setSaving(false);
         }
@@ -229,23 +309,30 @@ export default function EmployeesPage() {
   }
 
   const currentMonthSchedule = selected ? (() => {
-    const todayStr = todayKey();
-    const [yyyy, mm] = todayStr.split('-');
-    const year = parseInt(yyyy, 10);
-    const month = parseInt(mm, 10) - 1;
+    let year, month;
+    if (archiveMonth === 'current') {
+      const todayStr = todayKey();
+      const [yyyy, mm] = todayStr.split('-');
+      year = parseInt(yyyy, 10);
+      month = parseInt(mm, 10) - 1;
+    } else {
+      const [yyyy, mm] = archiveMonth.split('-');
+      year = parseInt(yyyy, 10);
+      month = parseInt(mm, 10) - 1;
+    }
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     
     const schedule = [];
     for (let i = 1; i <= daysInMonth; i++) {
       const d = new Date(year, month, i);
       const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-      const a = getAssignment(roster, selected, dateStr);
+      const a = getAssignment(activeRoster, selected, dateStr);
       schedule.push({ date: dateStr, assignment: a });
     }
     return schedule;
   })() : [];
 
-  const nightProgress = selected ? getNightShiftProgress(roster, selected) : null;
+  const nightProgress = selected ? getNightShiftProgress(activeRoster, selected, archiveMonth === 'current' ? todayKey() : `${archiveMonth}-01`) : null;
 
   if (loading) {
     return (
@@ -332,6 +419,9 @@ export default function EmployeesPage() {
           <div className="flex gap-2">
             <button className="btn-ghost text-xs border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm" onClick={() => openEdit(selected)}>✎ Edit</button>
             <button className="btn-ghost text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm" onClick={() => remove(selected.id)}>🗑 Remove</button>
+            {selected.active !== false && (
+              <button className="btn-ghost text-xs text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm" onClick={() => archive(selected)}>📦 Archive</button>
+            )}
           </div>
         )}
       </div>
@@ -403,30 +493,46 @@ export default function EmployeesPage() {
       </div>
 
       <div className="card p-6 border border-gray-100 dark:border-gray-800 shadow-sm mt-4">
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2">
             <span className="text-lg">📅</span> 
-            {new Date(todayKey() + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })} Schedule
+            {archiveMonth === 'current' ? new Date(todayKey() + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : new Date(`${archiveMonth}-01T00:00:00`).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })} Schedule
           </h3>
+          <select 
+            className="input text-sm py-1.5 w-full sm:w-auto font-medium" 
+            value={archiveMonth} 
+            onChange={e => setArchiveMonth(e.target.value)}
+          >
+            {monthOptions.map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-7 gap-3">
-          {currentMonthSchedule.map(({ date, assignment }) => {
-            const isToday = date === todayKey();
-            return (
-              <div key={date} className={`p-3 rounded-xl border transition-all hover:shadow-md cursor-pointer
-                ${isToday ? 'bg-teal-50 dark:bg-teal-900/10 border-teal-200 dark:border-teal-800/50 shadow-sm ring-1 ring-teal-500/20' : 'bg-white dark:bg-gray-900 border-gray-100 dark:border-gray-800 hover:border-teal-300'}`}
-                onClick={() => isAdmin && setAssignTarget({ emp: selected, date })}>
-                <div className={`text-[10px] uppercase font-bold tracking-wider mb-0.5 ${isToday ? 'text-teal-600 dark:text-teal-400' : 'text-gray-400'}`}>
-                  {new Date(date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short' })} {isToday && '(TODAY)'}
+        
+        {loadingArchive ? (
+          <div className="flex items-center justify-center h-32">
+            <div className="w-8 h-8 border-4 border-teal-500 border-t-transparent rounded-full animate-spin"></div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-7 gap-3">
+            {currentMonthSchedule.map(({ date, assignment }) => {
+              const isToday = date === todayKey();
+              return (
+                <div key={date} className={`p-3 rounded-xl border transition-all hover:shadow-md cursor-pointer
+                  ${isToday ? 'bg-teal-50 dark:bg-teal-900/10 border-teal-200 dark:border-teal-800/50 shadow-sm ring-1 ring-teal-500/20' : 'bg-white dark:bg-gray-900 border-gray-100 dark:border-gray-800 hover:border-teal-300'}`}
+                  onClick={() => isAdmin && archiveMonth === 'current' && setAssignTarget({ emp: selected, date })}>
+                  <div className={`text-[10px] uppercase font-bold tracking-wider mb-0.5 ${isToday ? 'text-teal-600 dark:text-teal-400' : 'text-gray-400'}`}>
+                    {new Date(date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short' })} {isToday && '(TODAY)'}
+                  </div>
+                  <div className="text-sm font-bold text-gray-900 dark:text-gray-100 mb-2">
+                    {new Date(date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  </div>
+                  {assignment ? <ShiftBadge shift={assignment.shift} isLeave={assignment.reason?.startsWith('LEAVE|')} reason={assignment.reason} /> : <div className="text-xs text-gray-400 italic">Not assigned</div>}
                 </div>
-                <div className="text-sm font-bold text-gray-900 dark:text-gray-100 mb-2">
-                  {new Date(date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                </div>
-                {assignment ? <ShiftBadge shift={assignment.shift} isLeave={assignment.reason?.startsWith('LEAVE|')} reason={assignment.reason} /> : <div className="text-xs text-gray-400 italic">Not assigned</div>}
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {isAdmin && selected.requests && Object.values(selected.requests).filter(r => r.status !== 'pending').length > 0 && (
@@ -532,6 +638,10 @@ export default function EmployeesPage() {
         <div className="flex items-center gap-2">
           <input className="input flex-1" placeholder="Search employees..." value={search} onChange={e => setSearch(e.target.value)} />
           <button className="btn-ghost text-xs border border-gray-200 dark:border-gray-700 px-3" onClick={() => load(true)} title="Refresh">↻</button>
+        </div>
+        <div className="flex bg-gray-100 dark:bg-gray-800 p-1 rounded-lg">
+          <button onClick={() => setShowArchived(false)} className={`flex-1 text-xs font-semibold py-1.5 rounded-md ${!showArchived ? 'bg-white dark:bg-gray-700 shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}>Active</button>
+          <button onClick={() => setShowArchived(true)} className={`flex-1 text-xs font-semibold py-1.5 rounded-md ${showArchived ? 'bg-white dark:bg-gray-700 shadow-sm text-amber-600' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}>Past Members</button>
         </div>
         <div className="card flex-1 overflow-auto p-2 space-y-1">
           {filtered.length === 0 && <p className="text-gray-400 text-sm text-center mt-4">No employees found.</p>}
