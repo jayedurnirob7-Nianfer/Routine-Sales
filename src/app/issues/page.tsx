@@ -40,11 +40,17 @@ export default function IssuesPage() {
     load();
   }, [load, isAdmin, router]);
 
-  // Extract all requests
+  // Extract all requests sorted by Employee ID and Date
   const allRequests = employees.flatMap(emp => {
     if (!emp.requests) return [];
     return Object.values(emp.requests).map(r => ({ emp, req: r }));
-  }).sort((a, b) => b.req.createdAt.localeCompare(a.req.createdAt));
+  }).sort((a, b) => {
+    const idA = String(a.emp.employeeId || a.emp.id);
+    const idB = String(b.emp.employeeId || b.emp.id);
+    const cmp = idA.localeCompare(idB, undefined, { numeric: true, sensitivity: 'base' });
+    if (cmp !== 0) return cmp;
+    return a.req.date.localeCompare(b.req.date) || a.req.createdAt.localeCompare(b.req.createdAt);
+  });
 
   const handlerPendingRequests = allRequests.filter(i => i.req.status === 'pending');
   const hrPendingRequests = allRequests.filter(i => i.req.status === 'handler_approved');
@@ -222,13 +228,21 @@ export default function IssuesPage() {
   }
 
   function downloadRequestsCSV(type: 'all' | 'handler_pending' | 'hr_pending' | 'resolved' | 'canceled') {
-    let source = allRequests;
-    if (type === 'handler_pending') source = handlerPendingRequests;
-    if (type === 'hr_pending') source = hrPendingRequests;
-    if (type === 'resolved') source = resolvedRequests;
-    if (type === 'canceled') source = canceledRequests;
+    let source = [...allRequests];
+    if (type === 'handler_pending') source = [...handlerPendingRequests];
+    if (type === 'hr_pending') source = [...hrPendingRequests];
+    if (type === 'resolved') source = [...resolvedRequests];
+    if (type === 'canceled') source = [...canceledRequests];
 
     if (source.length === 0) return;
+
+    source.sort((a, b) => {
+      const idA = String(a.emp.employeeId || a.emp.id);
+      const idB = String(b.emp.employeeId || b.emp.id);
+      const cmp = idA.localeCompare(idB, undefined, { numeric: true, sensitivity: 'base' });
+      if (cmp !== 0) return cmp;
+      return a.req.date.localeCompare(b.req.date) || a.req.createdAt.localeCompare(b.req.createdAt);
+    });
 
     const headers = ['Employee ID', 'Name', 'Target Date', 'Assigned Shift', 'Type', 'Reason', 'Status', 'Date Applied'];
     const rows = source.map(({ emp, req }) => {
