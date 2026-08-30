@@ -220,15 +220,8 @@ export async function getAdminCreds(): Promise<AdminCredentials> {
 
 // Atomic Shift Request operations
 export async function submitShiftRequest(employeeId: string, date: string, requestData: ShiftRequest): Promise<void> {
-  if (memCache) {
-    const emp = memCache.employees.find(e => e.id === employeeId || e.employeeId === employeeId);
-    if (emp) {
-      if (!emp.requests) emp.requests = {};
-      emp.requests[date] = requestData;
-      lsSet(LS_KEY, memCache);
-    }
-  }
   await apiPost('submitRequest', { employeeId, date, requestData });
+  invalidateCache();
 }
 
 export async function updateShiftRequestStatus(
@@ -237,47 +230,22 @@ export async function updateShiftRequestStatus(
   status: string,
   previousAssignment?: ShiftAssignment | null
 ): Promise<void> {
-  if (memCache) {
-    const emp = memCache.employees.find(e => e.id === employeeId || e.employeeId === employeeId);
-    if (emp && emp.requests && emp.requests[date]) {
-      emp.requests[date].status = status as any;
-      if (previousAssignment !== undefined) {
-        emp.requests[date].previousAssignment = previousAssignment;
-      }
-      lsSet(LS_KEY, memCache);
-    }
-  }
   await apiPost('updateRequestStatus', { employeeId, date, status, previousAssignment });
+  invalidateCache();
 }
 
 export async function bulkUpdateShiftRequestStatuses(
   updates: Array<{ employeeId: string; date: string; status: string; previousAssignment?: ShiftAssignment | null }>
 ): Promise<void> {
-  if (memCache) {
-    updates.forEach(u => {
-      const emp = memCache?.employees.find(e => e.id === u.employeeId || e.employeeId === u.employeeId);
-      if (emp && emp.requests && emp.requests[u.date]) {
-        emp.requests[u.date].status = u.status as any;
-        if (u.previousAssignment !== undefined) {
-          emp.requests[u.date].previousAssignment = u.previousAssignment;
-        }
-      }
-    });
-    lsSet(LS_KEY, memCache);
-  }
   await apiPost('bulkUpdateRequestStatuses', { updates });
+  invalidateCache();
 }
 
 export async function deleteShiftRequest(employeeId: string, date: string): Promise<void> {
-  if (memCache) {
-    const emp = memCache.employees.find(e => e.id === employeeId || e.employeeId === employeeId);
-    if (emp && emp.requests) {
-      delete emp.requests[date];
-      lsSet(LS_KEY, memCache);
-    }
-  }
   await apiPost('deleteRequest', { employeeId, date });
+  invalidateCache();
 }
+
 
 export async function deleteSingleEmployee(id: string): Promise<void> {
   if (memCache) {
