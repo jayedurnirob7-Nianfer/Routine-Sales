@@ -62,10 +62,11 @@ export default function IssuesPage() {
     return a.req.date.localeCompare(b.req.date) || a.req.createdAt.localeCompare(b.req.createdAt);
   });
 
-  const handlerPendingRequests = allRequests.filter(i => i.req.status === 'pending');
+  const handlerPendingRequests = allRequests.filter(i => !i.req.status || i.req.status === 'pending');
   const hrPendingRequests = allRequests.filter(i => i.req.status === 'handler_approved');
   const resolvedRequests = allRequests.filter(i => i.req.status === 'resolved' || i.req.status === 'approved');
   const canceledRequests = allRequests.filter(i => i.req.status === 'canceled' || i.req.status === 'rejected');
+
 
   const displayRequests = activeTab === 'handler_pending' ? handlerPendingRequests :
                           activeTab === 'hr_pending' ? hrPendingRequests :

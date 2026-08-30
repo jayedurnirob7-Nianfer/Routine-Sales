@@ -19,19 +19,28 @@ export async function GET() {
       } as any;
     }
 
-    const formattedEmployees = employees.map((emp: any) => ({
-      id: emp.id,
-      name: emp.name,
-      employeeId: emp.employeeId,
-      role: emp.role,
-      active: emp.active,
-      createdAt: emp.createdAt,
-      weeklyOffDay: emp.weeklyOffDay,
-      defaultShift: emp.defaultShift,
-      profileImage: emp.profileImage,
-      password: emp.password,
-      requests: emp.requests,
-    }));
+    const formattedEmployees = employees.map((emp: any) => {
+      let requests = emp.requests;
+      if (typeof requests === 'string') {
+        try { requests = JSON.parse(requests); } catch { requests = {}; }
+      } else if (!requests || typeof requests !== 'object') {
+        requests = {};
+      }
+
+      return {
+        id: emp.id,
+        name: emp.name,
+        employeeId: emp.employeeId,
+        role: emp.role,
+        active: emp.active,
+        createdAt: emp.createdAt,
+        weeklyOffDay: emp.weeklyOffDay,
+        defaultShift: emp.defaultShift,
+        profileImage: emp.profileImage,
+        password: emp.password,
+        requests: requests,
+      };
+    });
 
     const formattedRoster: Record<string, any[]> = {};
     rosters.forEach((r: any) => {
@@ -72,14 +81,17 @@ export async function POST(request: Request) {
 
     if (action === 'saveEmployees') {
       const { employees } = payload;
-      // Bulk upsert employees without destructive table wiping
-      const ops = employees.map((emp: any) => ({
-        updateOne: {
-          filter: { id: emp.id },
-          update: { $set: emp },
-          upsert: true
-        }
-      }));
+      // Bulk update employee profiles WITHOUT overwriting their requests field
+      const ops = employees.map((emp: any) => {
+        const { requests, ...empProfile } = emp;
+        return {
+          updateOne: {
+            filter: { id: emp.id },
+            update: { $set: empProfile },
+            upsert: true
+          }
+        };
+      });
       if (ops.length > 0) {
         await Employee.bulkWrite(ops as any);
       }
@@ -91,10 +103,23 @@ export async function POST(request: Request) {
       if (!employeeId || !date || !requestData) {
         return NextResponse.json({ status: 'error', message: 'Missing parameters' }, { status: 400 });
       }
-      await Employee.updateOne(
-        { $or: [{ id: employeeId }, { employeeId: employeeId }] },
-        { $set: { [`requests.${date}`]: requestData } }
-      );
+      
+      const empDoc = await Employee.findOne({ $or: [{ id: employeeId }, { employeeId: employeeId }] });
+      if (empDoc) {
+        let currentReqs = empDoc.requests;
+        if (typeof currentReqs === 'string') {
+          try { currentReqs = JSON.parse(currentReqs); } catch { currentReqs = {}; }
+        } else if (!currentReqs || typeof currentReqs !== 'object') {
+          currentReqs = {};
+        } else {
+          currentReqs = { ...currentReqs };
+        }
+        
+        currentReqs[date] = requestData;
+        empDoc.requests = currentReqs;
+        empDoc.markModified('requests');
+        await empDoc.save();
+      }
       return NextResponse.json({ status: 'ok' });
     }
 
@@ -103,37 +128,53 @@ export async function POST(request: Request) {
       if (!employeeId || !date || !status) {
         return NextResponse.json({ status: 'error', message: 'Missing parameters' }, { status: 400 });
       }
-      const updateFields: Record<string, any> = {
-        [`requests.${date}.status`]: status,
-      };
-      if (previousAssignment !== undefined) {
-        updateFields[`requests.${date}.previousAssignment`] = previousAssignment;
+      
+      const empDoc = await Employee.findOne({ $or: [{ id: employeeId }, { employeeId: employeeId }] });
+      if (empDoc && empDoc.requests) {
+        let currentReqs = empDoc.requests;
+        if (typeof currentReqs === 'string') {
+          try { currentReqs = JSON.parse(currentReqs); } catch { currentReqs = {}; }
+        } else {
+          currentReqs = { ...currentReqs };
+        }
+
+        if (currentReqs[date]) {
+          currentReqs[date] = { ...currentReqs[date], status };
+          if (previousAssignment !== undefined) {
+            currentReqs[date].previousAssignment = previousAssignment;
+          }
+          empDoc.requests = currentReqs;
+          empDoc.markModified('requests');
+          await empDoc.save();
+        }
       }
-      await Employee.updateOne(
-        { $or: [{ id: employeeId }, { employeeId: employeeId }] },
-        { $set: updateFields }
-      );
       return NextResponse.json({ status: 'ok' });
     }
 
     if (action === 'bulkUpdateRequestStatuses') {
       const { updates } = payload;
       if (Array.isArray(updates) && updates.length > 0) {
-        const ops = updates.map((u: any) => {
-          const setFields: Record<string, any> = {
-            [`requests.${u.date}.status`]: u.status,
-          };
-          if (u.previousAssignment !== undefined) {
-            setFields[`requests.${u.date}.previousAssignment`] = u.previousAssignment;
-          }
-          return {
-            updateOne: {
-              filter: { $or: [{ id: u.employeeId }, { employeeId: u.employeeId }] },
-              update: { $set: setFields }
+        for (const u of updates) {
+          const empDoc = await Employee.findOne({ $or: [{ id: u.employeeId }, { employeeId: u.employeeId }] });
+          if (empDoc && empDoc.requests) {
+            let currentReqs = empDoc.requests;
+            if (typeof currentReqs === 'string') {
+              try { currentReqs = JSON.parse(currentReqs); } catch { currentReqs = {}; }
+            } else {
+              currentReqs = { ...currentReqs };
             }
-          };
-        });
-        await Employee.bulkWrite(ops as any);
+
+            if (currentReqs[u.date]) {
+              currentReqs[u.date] = { ...currentReqs[u.date], status: u.status };
+              if (u.previousAssignment !== undefined) {
+                currentReqs[u.date].previousAssignment = u.previousAssignment;
+              }
+              empDoc.requests = currentReqs;
+              empDoc.markModified('requests');
+              await empDoc.save();
+            }
+          }
+        }
       }
       return NextResponse.json({ status: 'ok' });
     }
@@ -143,12 +184,24 @@ export async function POST(request: Request) {
       if (!employeeId || !date) {
         return NextResponse.json({ status: 'error', message: 'Missing parameters' }, { status: 400 });
       }
-      await Employee.updateOne(
-        { $or: [{ id: employeeId }, { employeeId: employeeId }] },
-        { $unset: { [`requests.${date}`]: 1 } }
-      );
+      
+      const empDoc = await Employee.findOne({ $or: [{ id: employeeId }, { employeeId: employeeId }] });
+      if (empDoc && empDoc.requests) {
+        let currentReqs = empDoc.requests;
+        if (typeof currentReqs === 'string') {
+          try { currentReqs = JSON.parse(currentReqs); } catch { currentReqs = {}; }
+        } else {
+          currentReqs = { ...currentReqs };
+        }
+
+        delete currentReqs[date];
+        empDoc.requests = currentReqs;
+        empDoc.markModified('requests');
+        await empDoc.save();
+      }
       return NextResponse.json({ status: 'ok' });
     }
+
 
     if (action === 'deleteEmployee') {
       const { id } = payload;
