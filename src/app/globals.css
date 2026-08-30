@@ -25,4 +25,21 @@
     stroke-dashoffset: 24;
     animation: drawCheck 0.4s ease-out forwards 0.2s;
   }
+
+  /* Sleek custom scrollbar */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(156, 163, 175, 0.25);
+    border-radius: 9999px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(20, 184, 166, 0.5);
+  }
 }
+

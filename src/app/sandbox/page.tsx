@@ -42,26 +42,27 @@ function DraggableEmployee({
       style={style}
       {...listeners}
       {...attributes}
-      className={`p-3 bg-white dark:bg-gray-800/90 border ${isDragging ? 'border-teal-500 shadow-2xl opacity-90 scale-105 z-50 relative ring-2 ring-teal-500/30' : 'border-gray-200 dark:border-gray-700 hover:border-teal-300 dark:hover:border-teal-600 shadow-sm hover:shadow-md'} rounded-xl cursor-grab active:cursor-grabbing transition-all flex items-center gap-3 backdrop-blur-sm`}
+      className={`p-3 bg-white dark:bg-gray-800/90 border ${isDragging ? 'border-teal-500 shadow-2xl opacity-90 scale-105 z-50 relative ring-2 ring-teal-500/30' : 'border-gray-200/80 dark:border-gray-700/60 hover:border-teal-400/50 dark:hover:border-teal-500/40 shadow-sm hover:shadow-md'} rounded-xl cursor-grab active:cursor-grabbing transition-all flex items-center gap-3 backdrop-blur-sm group`}
     >
       {emp.profileImage ? (
         <img src={emp.profileImage} alt={emp.name} className="w-9 h-9 rounded-full object-cover shadow-sm ring-1 ring-black/5 flex-shrink-0" />
       ) : (
-        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-teal-50 to-teal-100 dark:from-teal-900/50 dark:to-teal-800/50 text-teal-700 dark:text-teal-300 flex items-center justify-center font-bold text-xs shadow-sm ring-1 ring-black/5 flex-shrink-0">
+        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-teal-500/20 to-teal-700/20 text-teal-600 dark:text-teal-300 flex items-center justify-center font-bold text-xs shadow-sm ring-1 ring-black/5 flex-shrink-0">
           {emp.name.charAt(0)}
         </div>
       )}
       <div className="flex-1 min-w-0">
-        <p className="font-bold text-[13px] text-gray-800 dark:text-gray-200 truncate leading-tight mb-0.5">{emp.name}</p>
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-[10px] text-gray-500 font-medium truncate">{emp.employeeId}</span>
-          <span className="text-gray-300 dark:text-gray-600">·</span>
-          <span className="text-[10px] font-bold text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-950/60 border border-teal-200/80 dark:border-teal-800/80 px-1.5 py-0.5 rounded">
-            Off: {offDayLabel}
+        <p className="font-bold text-[13px] text-gray-800 dark:text-gray-200 truncate leading-tight mb-1">{emp.name}</p>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[10px] text-gray-400 font-medium truncate">{emp.employeeId}</span>
+          <span className="text-gray-300 dark:text-gray-700 text-[10px]">•</span>
+          <span className="inline-flex items-center gap-1.5 text-[10px] font-medium text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-white/[0.06] border border-gray-200/60 dark:border-white/[0.08] px-2 py-0.5 rounded-full transition-all">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.6)]"></span>
+            <span className="font-bold text-gray-800 dark:text-gray-200">{offDayLabel}</span> Off
           </span>
         </div>
       </div>
-      <div className="text-gray-300 dark:text-gray-600 hover:text-gray-400">⋮⋮</div>
+      <div className="text-gray-300 dark:text-gray-600 group-hover:text-gray-400 transition-colors">⋮⋮</div>
     </div>
   );
 }
@@ -85,10 +86,10 @@ function DroppableColumn({
   return (
     <div
       ref={setNodeRef}
-      className={`flex flex-col h-full rounded-2xl border ${config.bg} ${isOver ? 'border-teal-400 border-dashed bg-teal-50/50 dark:bg-teal-900/30 ring-4 ring-teal-500/10' : config.border} transition-all p-2 sm:p-3 shadow-sm overflow-hidden`}
+      className={`flex flex-col h-full rounded-2xl border ${config.bg} ${isOver ? 'border-teal-400 border-dashed bg-teal-50/50 dark:bg-teal-900/30 ring-4 ring-teal-500/10' : config.border} transition-all p-2.5 sm:p-3 shadow-sm overflow-hidden`}
     >
-      <div className="flex justify-between items-center mb-4 px-2 py-1">
-        <h3 className="font-extrabold text-[12px] text-gray-700 dark:text-gray-300 uppercase tracking-widest flex items-center gap-2">
+      <div className="flex justify-between items-center mb-3 px-1.5 py-0.5">
+        <h3 className="font-extrabold text-[12px] text-gray-700 dark:text-gray-300 uppercase tracking-wider flex items-center gap-2">
           <div className={`w-2 h-2 rounded-full shadow-sm ${id === 'unassigned' ? 'bg-gray-400' : id === 'morning' ? 'bg-amber-400' : id === 'evening' ? 'bg-blue-400' : id === 'night' ? 'bg-indigo-400' : 'bg-red-400'}`}></div>
           {title}
         </h3>
@@ -96,10 +97,10 @@ function DroppableColumn({
           {employees.length}
         </span>
       </div>
-      <div className="flex-1 space-y-2.5 overflow-y-auto pb-10 px-1 custom-scrollbar">
+      <div className="flex-1 space-y-2 overflow-y-auto pb-6 px-0.5 custom-scrollbar">
         {employees.length === 0 && (
-          <div className="h-28 flex flex-col items-center justify-center text-gray-400 text-xs font-medium italic border-2 border-dashed border-gray-200 dark:border-gray-700/50 rounded-xl bg-white/20 dark:bg-black/10 mx-1">
-            <span className="text-2xl mb-2 opacity-50">📥</span>
+          <div className="h-28 flex flex-col items-center justify-center text-gray-400 text-xs font-medium italic border-2 border-dashed border-gray-200 dark:border-gray-700/50 rounded-xl bg-white/20 dark:bg-black/10 mx-0.5">
+            <span className="text-2xl mb-2 opacity-40">📥</span>
             Drop here
           </div>
         )}
@@ -138,32 +139,32 @@ function FixedOffDayControlColumn({
   });
 
   return (
-    <div className="flex flex-col h-full rounded-2xl border bg-stone-50 dark:bg-stone-900/20 border-stone-200 dark:border-stone-800 transition-all p-2 sm:p-3 shadow-sm overflow-hidden">
+    <div className="flex flex-col h-full rounded-2xl border bg-stone-50/70 dark:bg-stone-900/20 border-stone-200 dark:border-stone-800 transition-all p-2.5 sm:p-3 shadow-sm overflow-hidden">
       {/* Header */}
-      <div className="flex justify-between items-center mb-2 px-2 py-1">
-        <h3 className="font-extrabold text-[12px] text-stone-800 dark:text-stone-200 uppercase tracking-widest flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full shadow-sm bg-stone-500"></div>
-          Off Day Manager
-        </h3>
-        <span className="bg-stone-200 dark:bg-stone-800 text-stone-700 dark:text-stone-300 text-xs font-bold px-2 py-0.5 rounded-full shadow-sm">
-          {employees.length} Staff (Fixed)
+      <div className="flex justify-between items-center mb-2.5 px-1.5">
+        <div className="flex items-center gap-1.5">
+          <div className="w-2 h-2 rounded-full bg-teal-500 shadow-[0_0_6px_rgba(20,184,166,0.6)]"></div>
+          <h3 className="font-extrabold text-[12px] text-stone-800 dark:text-stone-200 uppercase tracking-wider">
+            Off Day Manager
+          </h3>
+        </div>
+        <span className="bg-white/90 dark:bg-stone-800/90 text-stone-700 dark:text-stone-300 text-[11px] font-bold px-2.5 py-0.5 rounded-full border border-black/5 dark:border-white/5 shadow-sm">
+          {employees.length} Active
         </span>
       </div>
 
       {/* Mini Off Day Distribution Bar */}
-      <div className="mx-1 mb-3 p-2 bg-white/70 dark:bg-stone-800/50 rounded-xl border border-stone-200/80 dark:border-stone-700/50 text-[10px] flex items-center justify-between font-semibold text-stone-600 dark:text-stone-300">
+      <div className="mb-3 p-1.5 bg-white/80 dark:bg-stone-800/60 rounded-xl border border-stone-200/80 dark:border-stone-700/60 text-[10px] grid grid-cols-7 gap-1 shadow-sm">
         {WEEKDAYS.map((day, idx) => (
-          <div key={day} className="text-center">
-            <span className="text-stone-400 block text-[9px]">{day.substring(0, 1)}</span>
-            <span className={`font-bold ${distribution[idx] > 0 ? 'text-teal-600 dark:text-teal-400' : 'text-gray-400'}`}>
-              {distribution[idx]}
-            </span>
+          <div key={day} className={`text-center py-1 rounded-lg transition-colors ${distribution[idx] > 0 ? 'bg-teal-50 dark:bg-teal-950/40 text-teal-800 dark:text-teal-300 font-bold' : 'text-stone-400'}`}>
+            <span className="text-[9px] block opacity-70">{day.substring(0, 1)}</span>
+            <span className="text-[11px] block">{distribution[idx]}</span>
           </div>
         ))}
       </div>
 
-      {/* Employee List with 1-Click Day Buttons */}
-      <div className="flex-1 space-y-2 overflow-y-auto pb-10 px-1 custom-scrollbar">
+      {/* Employee List with Segmented 1-Click Day Buttons */}
+      <div className="flex-1 space-y-2 overflow-y-auto pb-6 px-0.5 custom-scrollbar">
         {employees.map(emp => {
           const currentOff = offDays[emp.id] ?? emp.weeklyOffDay ?? 5;
           const assignedShift = sandboxState[emp.id] || 'unassigned';
@@ -171,7 +172,7 @@ function FixedOffDayControlColumn({
           return (
             <div 
               key={emp.id}
-              className="p-2.5 bg-white dark:bg-gray-800/90 border border-stone-200 dark:border-stone-700/70 rounded-xl shadow-sm hover:border-stone-400 transition-all space-y-2"
+              className="p-2.5 bg-white dark:bg-gray-800/90 border border-stone-200/80 dark:border-gray-700/70 hover:border-teal-500/40 dark:hover:border-teal-500/40 rounded-xl shadow-sm transition-all space-y-2"
             >
               {/* Employee Info & Assigned Shift */}
               <div className="flex items-center justify-between gap-2">
@@ -179,7 +180,7 @@ function FixedOffDayControlColumn({
                   {emp.profileImage ? (
                     <img src={emp.profileImage} alt={emp.name} className="w-7 h-7 rounded-full object-cover shadow-sm ring-1 ring-black/5 flex-shrink-0" />
                   ) : (
-                    <div className="w-7 h-7 rounded-full bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 flex items-center justify-center font-bold text-[10px] flex-shrink-0">
+                    <div className="w-7 h-7 rounded-full bg-gradient-to-br from-teal-500/20 to-teal-700/20 text-teal-600 dark:text-teal-300 flex items-center justify-center font-bold text-[10px] flex-shrink-0">
                       {emp.name.charAt(0)}
                     </div>
                   )}
@@ -190,21 +191,20 @@ function FixedOffDayControlColumn({
                 </div>
 
                 {/* Shift Tag */}
-                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded capitalize flex-shrink-0 ${
-                  assignedShift === 'morning' ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300' :
-                  assignedShift === 'evening' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300' :
-                  assignedShift === 'night' ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300' :
-                  assignedShift === 'leave' ? 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300' :
-                  'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
+                <span className={`text-[9px] font-bold px-2 py-0.5 rounded-md capitalize flex-shrink-0 tracking-wide border ${
+                  assignedShift === 'morning' ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20' :
+                  assignedShift === 'evening' ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20' :
+                  assignedShift === 'night' ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20' :
+                  assignedShift === 'leave' ? 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20' :
+                  'bg-gray-500/10 text-gray-500 dark:text-gray-400 border-gray-500/20'
                 }`}>
                   {assignedShift}
                 </span>
               </div>
 
-              {/* 1-Click Day Buttons (Sun -> Sat) */}
-              <div className="flex items-center justify-between gap-1 pt-1 border-t border-stone-100 dark:border-stone-800">
-                <span className="text-[10px] font-semibold text-stone-500 mr-1">Off:</span>
-                <div className="flex-1 grid grid-cols-7 gap-0.5">
+              {/* Segmented 1-Click Day Buttons (Sun -> Sat) */}
+              <div className="pt-0.5">
+                <div className="grid grid-cols-7 gap-0.5 bg-gray-100/90 dark:bg-black/30 p-0.5 rounded-lg border border-gray-200/50 dark:border-white/[0.04]">
                   {DAY_LETTERS.map((letter, dayIdx) => {
                     const isSelected = currentOff === dayIdx;
                     const dayFullName = WEEKDAYS[dayIdx];
@@ -215,10 +215,10 @@ function FixedOffDayControlColumn({
                         type="button"
                         onClick={() => onOffDayChange(emp.id, dayIdx)}
                         title={`Set ${dayFullName} as weekly off day`}
-                        className={`h-6 rounded text-[10px] font-bold transition-all ${
+                        className={`h-6 flex items-center justify-center rounded text-[10px] font-bold transition-all ${
                           isSelected
-                            ? 'bg-teal-600 text-white shadow-sm ring-1 ring-teal-500 scale-105'
-                            : 'bg-stone-100 dark:bg-stone-800/80 text-stone-600 dark:text-stone-400 hover:bg-stone-200 dark:hover:bg-stone-700'
+                            ? 'bg-gradient-to-r from-teal-500 to-emerald-500 text-white shadow-sm ring-1 ring-teal-400/40 scale-105'
+                            : 'text-gray-400 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-white/60 dark:hover:bg-white/10'
                         }`}
                       >
                         {letter}
