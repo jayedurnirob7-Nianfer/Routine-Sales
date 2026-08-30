@@ -117,7 +117,7 @@ function DroppableColumn({
   );
 }
 
-// Fixed non-movable Off Day Control Column for ALL active employees
+// Dynamic Off Day Control Column for assigned employees sorted shift-wise (Morning -> Evening -> Night -> Leave)
 function FixedOffDayControlColumn({
   employees,
   sandboxState,
@@ -131,9 +131,32 @@ function FixedOffDayControlColumn({
 }) {
   const DAY_LETTERS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
-  // Calculate off-day balance distribution
+  // Filter ONLY assigned employees (exclude 'unassigned')
+  const assignedEmployees = employees.filter(e => {
+    const shift = sandboxState[e.id];
+    return shift && shift !== 'unassigned';
+  });
+
+  // Sort strictly shift-wise: Morning -> Evening -> Night -> Leave
+  const SHIFT_ORDER: Record<SandboxShiftColumn, number> = {
+    morning: 1,
+    evening: 2,
+    night: 3,
+    leave: 4,
+    unassigned: 99,
+  };
+
+  const sortedAssignedEmployees = [...assignedEmployees].sort((a, b) => {
+    const shiftA = sandboxState[a.id] || 'unassigned';
+    const shiftB = sandboxState[b.id] || 'unassigned';
+    const orderDiff = (SHIFT_ORDER[shiftA] || 99) - (SHIFT_ORDER[shiftB] || 99);
+    if (orderDiff !== 0) return orderDiff;
+    return a.name.localeCompare(b.name);
+  });
+
+  // Calculate off-day balance distribution for assigned employees only
   const distribution: Record<number, number> = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
-  employees.forEach(e => {
+  assignedEmployees.forEach(e => {
     const d = offDays[e.id] ?? e.weeklyOffDay ?? 5;
     distribution[d] = (distribution[d] || 0) + 1;
   });
@@ -149,7 +172,7 @@ function FixedOffDayControlColumn({
           </h3>
         </div>
         <span className="bg-white/90 dark:bg-stone-800/90 text-stone-700 dark:text-stone-300 text-[11px] font-bold px-2.5 py-0.5 rounded-full border border-black/5 dark:border-white/5 shadow-sm">
-          {employees.length} Active
+          {assignedEmployees.length} Assigned
         </span>
       </div>
 
@@ -163,73 +186,100 @@ function FixedOffDayControlColumn({
         ))}
       </div>
 
-      {/* Employee List with Segmented 1-Click Day Buttons */}
+      {/* Dynamic Employee List with Shift Groups */}
       <div className="flex-1 space-y-2 overflow-y-auto pb-6 px-0.5 custom-scrollbar">
-        {employees.map(emp => {
-          const currentOff = offDays[emp.id] ?? emp.weeklyOffDay ?? 5;
-          const assignedShift = sandboxState[emp.id] || 'unassigned';
+        {sortedAssignedEmployees.length === 0 ? (
+          <div className="h-40 flex flex-col items-center justify-center text-gray-400 text-xs font-medium italic border-2 border-dashed border-stone-200 dark:border-stone-800/60 rounded-xl bg-white/20 dark:bg-black/10 mx-0.5 p-4 text-center">
+            <span className="text-2xl mb-2 opacity-50">🏖️</span>
+            <span>No staff assigned to shifts yet.</span>
+            <span className="text-[10px] text-gray-400 mt-1 not-italic">Drag employees into Morning, Evening, or Night to manage their weekly off days here.</span>
+          </div>
+        ) : (
+          sortedAssignedEmployees.map((emp, index) => {
+            const currentOff = offDays[emp.id] ?? emp.weeklyOffDay ?? 5;
+            const assignedShift = sandboxState[emp.id] || 'unassigned';
+            const prevShift = index > 0 ? sandboxState[sortedAssignedEmployees[index - 1].id] : null;
+            const showShiftHeader = assignedShift !== prevShift;
 
-          return (
-            <div 
-              key={emp.id}
-              className="p-2.5 bg-white dark:bg-gray-800/90 border border-stone-200/80 dark:border-gray-700/70 hover:border-teal-500/40 dark:hover:border-teal-500/40 rounded-xl shadow-sm transition-all space-y-2"
-            >
-              {/* Employee Info & Assigned Shift */}
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2 min-w-0">
-                  {emp.profileImage ? (
-                    <img src={emp.profileImage} alt={emp.name} className="w-7 h-7 rounded-full object-cover shadow-sm ring-1 ring-black/5 flex-shrink-0" />
-                  ) : (
-                    <div className="w-7 h-7 rounded-full bg-gradient-to-br from-teal-500/20 to-teal-700/20 text-teal-600 dark:text-teal-300 flex items-center justify-center font-bold text-[10px] flex-shrink-0">
-                      {emp.name.charAt(0)}
+            return (
+              <div key={emp.id} className="space-y-1">
+                {showShiftHeader && (
+                  <div className="pt-2 first:pt-0 pb-1 flex items-center gap-1.5 px-1">
+                    <div className={`w-1.5 h-1.5 rounded-full ${
+                      assignedShift === 'morning' ? 'bg-amber-400' :
+                      assignedShift === 'evening' ? 'bg-blue-400' :
+                      assignedShift === 'night' ? 'bg-indigo-400' :
+                      'bg-red-400'
+                    }`} />
+                    <span className="text-[10px] font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">
+                      {assignedShift === 'morning' ? 'Morning Shift' :
+                       assignedShift === 'evening' ? 'Evening Shift' :
+                       assignedShift === 'night' ? 'Night Shift' : 'On Leave'}
+                    </span>
+                  </div>
+                )}
+
+                <div 
+                  className="p-2.5 bg-white dark:bg-gray-800/90 border border-stone-200/80 dark:border-gray-700/70 hover:border-teal-500/40 dark:hover:border-teal-500/40 rounded-xl shadow-sm transition-all space-y-2"
+                >
+                  {/* Employee Info & Assigned Shift */}
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      {emp.profileImage ? (
+                        <img src={emp.profileImage} alt={emp.name} className="w-7 h-7 rounded-full object-cover shadow-sm ring-1 ring-black/5 flex-shrink-0" />
+                      ) : (
+                        <div className="w-7 h-7 rounded-full bg-gradient-to-br from-teal-500/20 to-teal-700/20 text-teal-600 dark:text-teal-300 flex items-center justify-center font-bold text-[10px] flex-shrink-0">
+                          {emp.name.charAt(0)}
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <p className="font-bold text-[12px] text-gray-800 dark:text-gray-200 truncate leading-tight">{emp.name}</p>
+                        <p className="text-[10px] text-gray-400 truncate">{emp.employeeId}</p>
+                      </div>
                     </div>
-                  )}
-                  <div className="min-w-0">
-                    <p className="font-bold text-[12px] text-gray-800 dark:text-gray-200 truncate leading-tight">{emp.name}</p>
-                    <p className="text-[10px] text-gray-400 truncate">{emp.employeeId}</p>
+
+                    {/* Shift Tag */}
+                    <span className={`text-[9px] font-bold px-2 py-0.5 rounded-md capitalize flex-shrink-0 tracking-wide border ${
+                      assignedShift === 'morning' ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20' :
+                      assignedShift === 'evening' ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20' :
+                      assignedShift === 'night' ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20' :
+                      assignedShift === 'leave' ? 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20' :
+                      'bg-gray-500/10 text-gray-500 dark:text-gray-400 border-gray-500/20'
+                    }`}>
+                      {assignedShift}
+                    </span>
+                  </div>
+
+                  {/* Segmented 1-Click Day Buttons (Sun -> Sat) */}
+                  <div className="pt-0.5">
+                    <div className="grid grid-cols-7 gap-0.5 bg-gray-100/90 dark:bg-black/30 p-0.5 rounded-lg border border-gray-200/50 dark:border-white/[0.04]">
+                      {DAY_LETTERS.map((letter, dayIdx) => {
+                        const isSelected = currentOff === dayIdx;
+                        const dayFullName = WEEKDAYS[dayIdx];
+
+                        return (
+                          <button
+                            key={dayIdx}
+                            type="button"
+                            onClick={() => onOffDayChange(emp.id, dayIdx)}
+                            title={`Set ${dayFullName} as weekly off day`}
+                            className={`h-6 flex items-center justify-center rounded text-[10px] font-bold transition-all ${
+                              isSelected
+                                ? 'bg-gradient-to-r from-teal-500 to-emerald-500 text-white shadow-sm ring-1 ring-teal-400/40 scale-105'
+                                : 'text-gray-400 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-white/60 dark:hover:bg-white/10'
+                            }`}
+                          >
+                            {letter}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
-
-                {/* Shift Tag */}
-                <span className={`text-[9px] font-bold px-2 py-0.5 rounded-md capitalize flex-shrink-0 tracking-wide border ${
-                  assignedShift === 'morning' ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20' :
-                  assignedShift === 'evening' ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20' :
-                  assignedShift === 'night' ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20' :
-                  assignedShift === 'leave' ? 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20' :
-                  'bg-gray-500/10 text-gray-500 dark:text-gray-400 border-gray-500/20'
-                }`}>
-                  {assignedShift}
-                </span>
               </div>
-
-              {/* Segmented 1-Click Day Buttons (Sun -> Sat) */}
-              <div className="pt-0.5">
-                <div className="grid grid-cols-7 gap-0.5 bg-gray-100/90 dark:bg-black/30 p-0.5 rounded-lg border border-gray-200/50 dark:border-white/[0.04]">
-                  {DAY_LETTERS.map((letter, dayIdx) => {
-                    const isSelected = currentOff === dayIdx;
-                    const dayFullName = WEEKDAYS[dayIdx];
-
-                    return (
-                      <button
-                        key={dayIdx}
-                        type="button"
-                        onClick={() => onOffDayChange(emp.id, dayIdx)}
-                        title={`Set ${dayFullName} as weekly off day`}
-                        className={`h-6 flex items-center justify-center rounded text-[10px] font-bold transition-all ${
-                          isSelected
-                            ? 'bg-gradient-to-r from-teal-500 to-emerald-500 text-white shadow-sm ring-1 ring-teal-400/40 scale-105'
-                            : 'text-gray-400 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-white/60 dark:hover:bg-white/10'
-                        }`}
-                      >
-                        {letter}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          );
-        })}
+            );
+          })
+        )}
       </div>
     </div>
   );
