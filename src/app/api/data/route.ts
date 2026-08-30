@@ -20,19 +20,37 @@ export async function GET() {
     }
 
     const formattedEmployees = employees.map((emp: any) => {
+      let role = String(emp.role || '');
       let requests = emp.requests;
       if (typeof requests === 'string') {
         try { requests = JSON.parse(requests); } catch { requests = {}; }
       } else if (!requests || typeof requests !== 'object') {
         requests = {};
+      } else {
+        requests = { ...requests };
+      }
+
+      if (role.includes('|REQS:')) {
+        const parts = role.split('|REQS:');
+        role = parts[0];
+        try {
+          const legacy = JSON.parse(parts[1]);
+          requests = { ...legacy, ...requests };
+        } catch {}
+      }
+      if (role.includes('|PWD:')) {
+        role = role.split('|PWD:')[0];
+      }
+      if (role.includes('|IMG:')) {
+        role = role.split('|IMG:')[0];
       }
 
       return {
-        id: emp.id,
-        name: emp.name,
-        employeeId: emp.employeeId,
-        role: emp.role,
-        active: emp.active,
+        id: String(emp.id || ''),
+        name: String(emp.name || ''),
+        employeeId: String(emp.employeeId || ''),
+        role: role,
+        active: emp.active !== false,
         createdAt: emp.createdAt,
         weeklyOffDay: emp.weeklyOffDay,
         defaultShift: emp.defaultShift,
@@ -41,6 +59,7 @@ export async function GET() {
         requests: requests,
       };
     });
+
 
     const formattedRoster: Record<string, any[]> = {};
     rosters.forEach((r: any) => {

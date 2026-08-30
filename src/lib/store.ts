@@ -54,14 +54,25 @@ function toEmployee(e: Record<string, unknown>): Employee {
   let role = String(e.role ?? '');
   let profileImage: string | undefined = undefined;
   let password = '1234';
-  let requests: Record<string, ShiftRequest> | undefined = undefined;
+  let requests: Record<string, ShiftRequest> = {};
   
+  // 1. Read requests from true MongoDB field e.requests
+  if (e.requests) {
+    if (typeof e.requests === 'string') {
+      try { requests = JSON.parse(e.requests); } catch {}
+    } else if (typeof e.requests === 'object') {
+      requests = { ...(e.requests as any) };
+    }
+  }
+
+  // 2. If role has legacy |REQS:, extract and merge without overwriting newer MongoDB requests
   if (role.includes('|REQS:')) {
     const parts = role.split('|REQS:');
     role = parts[0];
-    try { requests = JSON.parse(parts[1]); } catch {}
-  } else {
-    requests = e.requests as any;
+    try {
+      const legacyReqs = JSON.parse(parts[1]);
+      requests = { ...legacyReqs, ...requests };
+    } catch {}
   }
   
   if (role.includes('|PWD:')) {
