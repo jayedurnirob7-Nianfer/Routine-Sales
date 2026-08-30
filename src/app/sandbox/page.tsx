@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
-import { getEmployees, getRoster, saveRoster, todayKey, getAssignment, upsertAssignmentLocal } from '@/lib/store';
+import { getEmployees, saveEmployees, getRoster, saveRoster, todayKey, getAssignment, upsertAssignmentLocal, WEEKDAYS, SHIFT_INFO } from '@/lib/store';
 import { Employee, RosterData, ShiftType } from '@/types';
 import { useAuth } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
@@ -102,6 +102,12 @@ export default function SandboxPage() {
   const [showApplyModal, setShowApplyModal] = useState(false);
   const [fromDate, setFromDate] = useState(todayKey());
   const [toDate, setToDate] = useState(todayKey());
+  
+  // Smart scheduling options
+  const [applyMode, setApplyMode] = useState<'smart' | 'exact'>('smart');
+  const [offDayWeekday, setOffDayWeekday] = useState<number>(5); // Default Friday (5)
+  const [syncProfiles, setSyncProfiles] = useState<boolean>(true);
+  const [leaveBaseShift, setLeaveBaseShift] = useState<ShiftType>('morning');
 
   useEffect(() => {
     if (isAdmin === false) {
@@ -154,47 +160,122 @@ export default function SandboxPage() {
 
     if (sandboxState[empId] !== toColumn) {
       setSandboxState(prev => ({ ...prev, [empId]: toColumn }));
-      setSuccess(false); // reset success message on change
+      setSuccess(false);
     }
   }
 
   async function handleApplyToLive() {
     setSaving(true);
     let updatedRoster = { ...roster };
+    let updatedEmployees = [...employees];
     
-    const start = new Date(fromDate + 'T00:00:00');
-    const end = new Date(toDate + 'T00:00:00');
+    const [fy, fm, fd] = fromDate.split('-').map(Number);
+    const [ty, tm, td] = toDate.split('-').map(Number);
+    const start = new Date(fy, fm - 1, fd);
+    const end = new Date(ty, tm - 1, td);
     const empIds = new Set(employees.map(e => e.id));
 
-    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-      const applyDate = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-      
+    let current = new Date(start);
+    while (current <= end) {
+      const y = current.getFullYear();
+      const m = String(current.getMonth() + 1).padStart(2, '0');
+      const d = String(current.getDate()).padStart(2, '0');
+      const applyDate = `${y}-${m}-${d}`;
+      const currentDayOfWeek = current.getDay();
+
       const oldAssignments = updatedRoster[applyDate] || [];
+      // Keep assignments of employees not in the active sandbox list
       updatedRoster[applyDate] = oldAssignments.filter(a => !empIds.has(a.employeeId));
 
       employees.forEach(emp => {
         const col = sandboxState[emp.id];
-        if (col === 'unassigned') return; 
-        
-        let shift: ShiftType = 'morning';
-        let reason: string | undefined = undefined;
+        if (col === 'unassigned') return;
 
-        if (col === 'leave') {
-          const oldAssign = getAssignment(roster, emp, applyDate);
-          shift = (oldAssign?.shift && oldAssign.shift !== 'off') ? oldAssign.shift : 'morning';
-          reason = oldAssign?.reason?.startsWith('LEAVE|') ? oldAssign.reason : 'LEAVE|FULL';
+        const empOffDay = (emp.weeklyOffDay !== undefined) ? emp.weeklyOffDay : offDayWeekday;
+        const isOffDayForEmp = (currentDayOfWeek === empOffDay);
+
+        let finalShift: ShiftType = 'morning';
+        let finalReason: string | undefined = undefined;
+        let isOffDayOverride = false;
+
+        if (applyMode === 'smart') {
+          if (col === 'off') {
+            // Employee placed in Off Day column -> gets Off Day on recurring day, regular shift on workdays
+            if (isOffDayForEmp) {
+              finalShift = 'off';
+              const base = emp.defaultShift || 'morning';
+              finalReason = `OFF|${base}`;
+              isOffDayOverride = true;
+            } else {
+              finalShift = emp.defaultShift || 'morning';
+              finalReason = undefined;
+            }
+          } else if (col === 'leave') {
+            if (isOffDayForEmp) {
+              finalShift = 'off';
+              finalReason = `OFF|${emp.defaultShift || leaveBaseShift}`;
+              isOffDayOverride = true;
+            } else {
+              finalShift = (emp.defaultShift && emp.defaultShift !== 'off') ? emp.defaultShift : leaveBaseShift;
+              finalReason = 'LEAVE|FULL';
+            }
+          } else {
+            // col is 'morning' | 'evening' | 'night'
+            if (isOffDayForEmp) {
+              finalShift = 'off';
+              finalReason = `OFF|${col}`;
+              isOffDayOverride = true;
+            } else {
+              finalShift = col as ShiftType;
+              finalReason = undefined;
+            }
+          }
         } else {
-          shift = col as ShiftType;
+          // Exact daily copy mode
+          if (col === 'leave') {
+            finalShift = (emp.defaultShift && emp.defaultShift !== 'off') ? emp.defaultShift : leaveBaseShift;
+            finalReason = 'LEAVE|FULL';
+          } else if (col === 'off') {
+            finalShift = 'off';
+            finalReason = `OFF|${emp.defaultShift || 'morning'}`;
+            isOffDayOverride = true;
+          } else {
+            finalShift = col as ShiftType;
+          }
         }
 
         updatedRoster = upsertAssignmentLocal(updatedRoster, applyDate, {
           employeeId: emp.id,
-          shift: shift,
-          effectiveFrom: applyDate,
-          effectiveTo: applyDate,
-          reason: reason,
+          shift: finalShift,
+          effectiveFrom: fromDate,
+          effectiveTo: toDate,
+          reason: finalReason,
+          isOffDayOverride,
         }, emp);
       });
+
+      current.setDate(current.getDate() + 1);
+    }
+
+    // Sync profiles if selected
+    if (syncProfiles) {
+      updatedEmployees = updatedEmployees.map(emp => {
+        const col = sandboxState[emp.id];
+        if (col === 'unassigned') return emp;
+
+        let newDefaultShift = emp.defaultShift || 'morning';
+        if (col === 'morning' || col === 'evening' || col === 'night') {
+          newDefaultShift = col;
+        }
+
+        return {
+          ...emp,
+          defaultShift: newDefaultShift,
+          weeklyOffDay: emp.weeklyOffDay !== undefined ? emp.weeklyOffDay : offDayWeekday,
+        };
+      });
+      await saveEmployees(updatedEmployees);
+      setEmployees(updatedEmployees);
     }
 
     await saveRoster(updatedRoster);
@@ -202,13 +283,14 @@ export default function SandboxPage() {
     setSuccess(true);
     setSaving(false);
     setShowApplyModal(false);
-    setTimeout(() => setSuccess(false), 3000);
+    setTimeout(() => setSuccess(false), 4000);
   }
 
   if (isAdmin === null || loading) return <div className="p-8 text-center text-gray-500">Loading Sandbox...</div>;
   if (isAdmin === false) return null;
 
   const activeEmp = activeId ? employees.find(e => e.id === activeId) : null;
+  const selectedOffDayName = WEEKDAYS[offDayWeekday];
 
   return (
     <div className="p-6 max-w-[1600px] mx-auto h-[calc(100vh-64px)] flex flex-col">
@@ -220,7 +302,7 @@ export default function SandboxPage() {
           <p className="text-gray-500 text-sm mt-1">Draft schedules freely without affecting the live roster until you click Apply.</p>
         </div>
         <div className="flex items-center gap-4">
-          {success && <div className="text-green-600 dark:text-green-400 font-bold text-sm bg-green-50 dark:bg-green-900/20 px-4 py-2 rounded-lg border border-green-200 dark:border-green-800 animate-in fade-in slide-in-from-right-4">✅ Roster Updated Successfully!</div>}
+          {success && <div className="text-green-600 dark:text-green-400 font-bold text-sm bg-green-50 dark:bg-green-900/20 px-4 py-2 rounded-lg border border-green-200 dark:border-green-800 animate-in fade-in slide-in-from-right-4">✅ Live Roster Updated Successfully!</div>}
           <button 
             onClick={() => setShowApplyModal(true)}
             className="btn-primary shadow-lg flex items-center gap-2"
@@ -251,42 +333,121 @@ export default function SandboxPage() {
         </DragOverlay>
       </DndContext>
 
-      {/* Date Range Modal */}
+      {/* Date Range & Scheduling Modal */}
       {showApplyModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200" onClick={() => setShowApplyModal(false)}>
-          <div className="card bg-white dark:bg-gray-900 p-6 max-w-sm w-full shadow-2xl border border-gray-100 dark:border-gray-800 animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-            <h2 className="text-xl font-bold mb-2">Apply Roster Draft</h2>
-            <p className="text-sm text-gray-500 mb-6">Select the date range to apply this exact layout to.</p>
+          <div className="card bg-white dark:bg-gray-900 p-6 max-w-md w-full shadow-2xl border border-gray-100 dark:border-gray-800 animate-in zoom-in-95 duration-200 max-h-[92vh] overflow-y-auto space-y-5" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100 dark:border-gray-800">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900 dark:text-white">Apply Roster Draft</h2>
+                <p className="text-xs text-gray-500 font-medium">Apply this layout across single or multiple dates</p>
+              </div>
+              <button onClick={() => setShowApplyModal(false)} className="text-gray-400 hover:text-gray-600 text-xl font-bold p-1">✕</button>
+            </div>
             
-            <div className="space-y-4 mb-6">
-              <div>
-                <label className="block text-sm font-semibold mb-1 text-gray-700 dark:text-gray-300">From Date</label>
-                <input type="date" className="input w-full" value={fromDate} onChange={e => setFromDate(e.target.value)} />
-              </div>
-              <div>
-                <label className="block text-sm font-semibold mb-1 text-gray-700 dark:text-gray-300">To Date</label>
-                <input type="date" className="input w-full" value={toDate} onChange={e => setToDate(e.target.value)} />
-              </div>
-            </div>
-
-            <div className="bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/50 rounded-lg p-3 mb-6 flex gap-3 text-amber-800 dark:text-amber-500 text-xs">
-              <div className="text-xl">⚠️</div>
-              <div>
-                <strong>Warning:</strong> This will overwrite existing assignments in this range. The literal columns on this board will be copied identically to every day in the range. Off days will not automatically scatter.
+            {/* 1. Date Range */}
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">1. Target Date Range</label>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <span className="block text-[11px] font-semibold text-gray-600 dark:text-gray-400 mb-1">From Date</span>
+                  <input type="date" className="input w-full" value={fromDate} onChange={e => { setFromDate(e.target.value); if (e.target.value > toDate) setToDate(e.target.value); }} />
+                </div>
+                <div>
+                  <span className="block text-[11px] font-semibold text-gray-600 dark:text-gray-400 mb-1">To Date</span>
+                  <input type="date" className="input w-full" value={toDate} min={fromDate} onChange={e => setToDate(e.target.value)} />
+                </div>
               </div>
             </div>
 
-            <div className="flex justify-end gap-3">
-              <button className="btn-ghost" onClick={() => setShowApplyModal(false)}>Cancel</button>
+            {/* 2. Schedule Application Mode */}
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">2. Schedule Mode</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setApplyMode('smart')}
+                  className={`p-3 rounded-xl border text-left transition-all ${applyMode === 'smart' ? 'border-teal-500 bg-teal-50/60 dark:bg-teal-950/30 text-teal-900 dark:text-teal-200 ring-2 ring-teal-500/20 font-bold' : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'}`}
+                >
+                  <div className="text-xs font-bold flex items-center gap-1.5"><span>🔄</span> Smart Weekly</div>
+                  <div className="text-[11px] opacity-75 font-normal mt-0.5">Recurring Off Days</div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setApplyMode('exact')}
+                  className={`p-3 rounded-xl border text-left transition-all ${applyMode === 'exact' ? 'border-teal-500 bg-teal-50/60 dark:bg-teal-950/30 text-teal-900 dark:text-teal-200 ring-2 ring-teal-500/20 font-bold' : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'}`}
+                >
+                  <div className="text-xs font-bold flex items-center gap-1.5"><span>📋</span> Exact Daily</div>
+                  <div className="text-[11px] opacity-75 font-normal mt-0.5">Identical Every Day</div>
+                </button>
+              </div>
+            </div>
+
+            {/* 3. Weekly Off Day Selection (if Smart mode) */}
+            {applyMode === 'smart' && (
+              <div className="p-4 bg-teal-50/50 dark:bg-teal-950/20 border border-teal-200/70 dark:border-teal-900/40 rounded-2xl space-y-2.5 animate-in fade-in duration-200">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold uppercase tracking-wider text-teal-900 dark:text-teal-200">
+                    Recurring Weekly Off Day
+                  </span>
+                  <span className="text-[11px] font-bold text-teal-700 dark:text-teal-400 bg-teal-100 dark:bg-teal-900/50 px-2 py-0.5 rounded-full">
+                    Every {selectedOffDayName}
+                  </span>
+                </div>
+                <p className="text-[11px] text-teal-800 dark:text-teal-300">
+                  Select the weekly off day to apply across the date range:
+                </p>
+                <div className="grid grid-cols-7 gap-1">
+                  {WEEKDAYS.map((day, i) => (
+                    <button
+                      key={day}
+                      type="button"
+                      onClick={() => setOffDayWeekday(i)}
+                      className={`py-2 text-xs font-bold rounded-xl border transition-all ${
+                        offDayWeekday === i
+                          ? 'bg-teal-600 text-white border-teal-700 shadow-md scale-105 ring-2 ring-teal-400/30'
+                          : 'border-teal-200 dark:border-teal-800/80 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:border-teal-400'
+                      }`}
+                    >
+                      {day.substring(0, 3)}
+                    </button>
+                  ))}
+                </div>
+                <div className="text-[11px] text-gray-600 dark:text-gray-400 bg-white/70 dark:bg-gray-800/70 p-2.5 rounded-xl border border-teal-100 dark:border-teal-900/30 space-y-1">
+                  <p>✨ <strong>Staff in Off Day column:</strong> Get <strong>Off Day</strong> every {selectedOffDayName}, and their base shift on other days.</p>
+                  <p>✨ <strong>Staff in Shifts:</strong> Work their assigned shift with {selectedOffDayName} as their recurring off day.</p>
+                  <p>✨ <strong>Staff On Leave:</strong> Marked On Leave for workdays with {selectedOffDayName} as Off Day.</p>
+                </div>
+              </div>
+            )}
+
+            {/* Profile Sync Checkbox */}
+            <div className="pt-1">
+              <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                <input 
+                  type="checkbox" 
+                  checked={syncProfiles} 
+                  onChange={e => setSyncProfiles(e.target.checked)} 
+                  className="w-4 h-4 text-teal-600 rounded focus:ring-teal-500 cursor-pointer accent-teal-600" 
+                />
+                <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+                  Save assigned shift & off day to employee profiles as default
+                </span>
+              </label>
+            </div>
+
+            <div className="flex justify-end gap-2.5 pt-3 border-t border-gray-100 dark:border-gray-800">
+              <button type="button" className="btn-ghost text-xs border border-gray-200 dark:border-gray-700" onClick={() => setShowApplyModal(false)}>Cancel</button>
               <button 
-                className="btn-primary flex items-center gap-2" 
+                type="button"
+                className="btn-primary text-xs flex items-center gap-2 shadow-lg shadow-teal-500/20" 
                 onClick={handleApplyToLive}
                 disabled={saving || !fromDate || !toDate || fromDate > toDate}
               >
                 {saving ? (
                   <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> Applying...</>
                 ) : (
-                  'Confirm Apply'
+                  `Confirm & Apply (${fromDate === toDate ? fromDate : `${fromDate} to ${toDate}`})`
                 )}
               </button>
             </div>
@@ -296,3 +457,4 @@ export default function SandboxPage() {
     </div>
   );
 }
+

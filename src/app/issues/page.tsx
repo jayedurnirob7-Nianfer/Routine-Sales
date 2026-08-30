@@ -1,6 +1,9 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
-import { getEmployees, saveEmployees, invalidateCache, getRoster, upsertAssignment, SHIFT_INFO, getAssignment } from '@/lib/store';
+import { 
+  getEmployees, invalidateCache, getRoster, upsertAssignment, SHIFT_INFO, getAssignment,
+  updateShiftRequestStatus, bulkUpdateShiftRequestStatuses, deleteShiftRequest 
+} from '@/lib/store';
 import { Employee, ShiftRequest, RosterData } from '@/types';
 import { useAuth } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
@@ -17,18 +20,18 @@ export default function IssuesPage() {
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [confirmConfig, setConfirmConfig] = useState<{ open: boolean; title: string; message: string; action: () => void; isDestructive?: boolean }>({ open: false, title: '', message: '', action: () => {} });
 
-  const load = useCallback(async (forceRefresh = false) => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     setError(null);
-    if (forceRefresh) invalidateCache();
+    invalidateCache(); // Always get fresh data for issues/requests
     try {
       const [emps, ros] = await Promise.all([getEmployees(), getRoster()]);
       setEmployees(emps);
       setRoster(ros);
     } catch (e: any) {
-      setError(`Failed to load data: ${e.message || 'Unknown error'}`);
+      if (!silent) setError(`Failed to load data: ${e.message || 'Unknown error'}`);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
@@ -37,7 +40,14 @@ export default function IssuesPage() {
       router.push('/');
       return;
     }
-    load();
+    load(false);
+
+    // Auto-poll for new issues/requests every 10 seconds
+    const interval = setInterval(() => {
+      load(true);
+    }, 10000);
+
+    return () => clearInterval(interval);
   }, [load, isAdmin, router]);
 
   // Extract all requests sorted by Employee ID and Date
@@ -63,15 +73,12 @@ export default function IssuesPage() {
 
   async function handleApproveAll() {
     setProcessingId('approve-all');
-    invalidateCache();
-    const freshEmps = await getEmployees();
-    let updatedRoster = { ...roster };
-    let hasRosterChanges = false;
-    let hasEmpChanges = false;
-    
-    for (const { emp, req } of handlerPendingRequests) {
-      const e = freshEmps.find(x => x.id === emp.id);
-      if (e && e.requests && e.requests[req.date] && e.requests[req.date].status === 'pending') {
+    try {
+      let updatedRoster = { ...roster };
+      let hasRosterChanges = false;
+      const updates: Array<{ employeeId: string; date: string; status: string; previousAssignment?: import('@/types').ShiftAssignment | null }> = [];
+      
+      for (const { emp, req } of handlerPendingRequests) {
         const isLeave = req.type === 'leave';
         let previousAssignment: import('@/types').ShiftAssignment | null = null;
         
@@ -90,141 +97,196 @@ export default function IssuesPage() {
         }
 
         const newStatus = isLeave ? 'resolved' : 'handler_approved';
-        e.requests[req.date] = { ...e.requests[req.date], status: newStatus, previousAssignment };
-        hasEmpChanges = true;
+        updates.push({
+          employeeId: emp.id,
+          date: req.date,
+          status: newStatus,
+          previousAssignment,
+        });
       }
-    }
 
-    if (hasRosterChanges) {
-      setRoster(updatedRoster);
-      await import('@/lib/store').then(m => m.saveRoster(updatedRoster));
+      if (hasRosterChanges) {
+        setRoster(updatedRoster);
+        await import('@/lib/store').then(m => m.saveRoster(updatedRoster));
+      }
+      if (updates.length > 0) {
+        await bulkUpdateShiftRequestStatuses(updates);
+        // Update local state smoothly
+        setEmployees(prev => prev.map(e => {
+          const empUpdates = updates.filter(u => u.employeeId === e.id || u.employeeId === e.employeeId);
+          if (empUpdates.length === 0 || !e.requests) return e;
+          const newReqs = { ...e.requests };
+          empUpdates.forEach(u => {
+            if (newReqs[u.date]) {
+              newReqs[u.date] = { ...newReqs[u.date], status: u.status as any, previousAssignment: u.previousAssignment };
+            }
+          });
+          return { ...e, requests: newReqs };
+        }));
+      }
+    } finally {
+      setProcessingId(null);
     }
-    if (hasEmpChanges) {
-      setEmployees(freshEmps);
-      await saveEmployees(freshEmps);
-    }
-    setProcessingId(null);
   }
 
   async function handleHRApproveAll() {
     setProcessingId('hrapprove-all');
-    invalidateCache();
-    const freshEmps = await getEmployees();
-    let hasEmpChanges = false;
-    
-    for (const { emp, req } of hrPendingRequests) {
-      const e = freshEmps.find(x => x.id === emp.id);
-      if (e && e.requests && e.requests[req.date] && e.requests[req.date].status === 'handler_approved') {
-        e.requests[req.date] = { ...e.requests[req.date], status: 'resolved' };
-        hasEmpChanges = true;
+    try {
+      const updates = hrPendingRequests.map(({ emp, req }) => ({
+        employeeId: emp.id,
+        date: req.date,
+        status: 'resolved',
+      }));
+      
+      if (updates.length > 0) {
+        await bulkUpdateShiftRequestStatuses(updates);
+        setEmployees(prev => prev.map(e => {
+          const empUpdates = updates.filter(u => u.employeeId === e.id || u.employeeId === e.employeeId);
+          if (empUpdates.length === 0 || !e.requests) return e;
+          const newReqs = { ...e.requests };
+          empUpdates.forEach(u => {
+            if (newReqs[u.date]) {
+              newReqs[u.date] = { ...newReqs[u.date], status: 'resolved' };
+            }
+          });
+          return { ...e, requests: newReqs };
+        }));
       }
+    } finally {
+      setProcessingId(null);
     }
-    
-    if (hasEmpChanges) {
-      setEmployees(freshEmps);
-      await saveEmployees(freshEmps);
-    }
-    setProcessingId(null);
   }
 
   async function handleApprove(emp: Employee, req: ShiftRequest) {
     const id = `${emp.id}-${req.date}-approve`;
     setProcessingId(id);
-    const isLeave = req.type === 'leave';
-    let previousAssignment: import('@/types').ShiftAssignment | null = null;
-    
-    if (req.type !== 'issue') {
-      previousAssignment = getAssignment(roster, emp, req.date) || null;
-      const newRoster = await upsertAssignment(roster, req.date, {
-        employeeId: emp.id,
-        shift: (req.type === 'off' || isLeave) ? 'off' : (req.requestedShift || 'morning'),
-        effectiveFrom: req.date,
-        effectiveTo: req.date,
-        isOffDayOverride: true,
-        reason: isLeave ? `LEAVE|${req.date}|${req.date}|${req.reason || 'Leave'}` : `Approved Request: ${req.type}`,
-      });
-      setRoster(newRoster);
-    }
+    try {
+      const isLeave = req.type === 'leave';
+      let previousAssignment: import('@/types').ShiftAssignment | null = null;
+      
+      if (req.type !== 'issue') {
+        previousAssignment = getAssignment(roster, emp, req.date) || null;
+        const newRoster = await upsertAssignment(roster, req.date, {
+          employeeId: emp.id,
+          shift: (req.type === 'off' || isLeave) ? 'off' : (req.requestedShift || 'morning'),
+          effectiveFrom: req.date,
+          effectiveTo: req.date,
+          isOffDayOverride: true,
+          reason: isLeave ? `LEAVE|${req.date}|${req.date}|${req.reason || 'Leave'}` : `Approved Request: ${req.type}`,
+        });
+        setRoster(newRoster);
+      }
 
-    invalidateCache();
-    const freshEmps = await getEmployees();
-    const e = freshEmps.find(x => x.id === emp.id);
-    if (e && e.requests) {
       const newStatus = isLeave ? 'resolved' : 'handler_approved';
-      e.requests[req.date] = { ...e.requests[req.date], status: newStatus, previousAssignment };
-      setEmployees(freshEmps);
-      await saveEmployees(freshEmps);
+      await updateShiftRequestStatus(emp.id, req.date, newStatus, previousAssignment);
+
+      // Update state locally
+      setEmployees(prev => prev.map(e => {
+        if (e.id !== emp.id && e.employeeId !== emp.employeeId) return e;
+        if (!e.requests || !e.requests[req.date]) return e;
+        return {
+          ...e,
+          requests: {
+            ...e.requests,
+            [req.date]: { ...e.requests[req.date], status: newStatus as any, previousAssignment },
+          }
+        };
+      }));
+    } finally {
+      setProcessingId(null);
     }
-    setProcessingId(null);
   }
 
   async function handleHRApprove(emp: Employee, req: ShiftRequest) {
     const id = `${emp.id}-${req.date}-hrapprove`;
     setProcessingId(id);
-    invalidateCache();
-    const freshEmps = await getEmployees();
-    const e = freshEmps.find(x => x.id === emp.id);
-    if (e && e.requests) {
-      e.requests[req.date] = { ...e.requests[req.date], status: 'resolved' };
-      setEmployees(freshEmps);
-      await saveEmployees(freshEmps);
+    try {
+      await updateShiftRequestStatus(emp.id, req.date, 'resolved');
+      setEmployees(prev => prev.map(e => {
+        if (e.id !== emp.id && e.employeeId !== emp.employeeId) return e;
+        if (!e.requests || !e.requests[req.date]) return e;
+        return {
+          ...e,
+          requests: {
+            ...e.requests,
+            [req.date]: { ...e.requests[req.date], status: 'resolved' },
+          }
+        };
+      }));
+    } finally {
+      setProcessingId(null);
     }
-    setProcessingId(null);
   }
 
   async function handleReject(emp: Employee, req: ShiftRequest) {
     const id = `${emp.id}-${req.date}-reject`;
     setProcessingId(id);
-    invalidateCache();
-    const freshEmps = await getEmployees();
-    const e = freshEmps.find(x => x.id === emp.id);
-    if (e && e.requests) {
-      e.requests[req.date] = { ...e.requests[req.date], status: 'rejected' };
-      setEmployees(freshEmps);
-      await saveEmployees(freshEmps);
+    try {
+      await updateShiftRequestStatus(emp.id, req.date, 'rejected');
+      setEmployees(prev => prev.map(e => {
+        if (e.id !== emp.id && e.employeeId !== emp.employeeId) return e;
+        if (!e.requests || !e.requests[req.date]) return e;
+        return {
+          ...e,
+          requests: {
+            ...e.requests,
+            [req.date]: { ...e.requests[req.date], status: 'rejected' },
+          }
+        };
+      }));
+    } finally {
+      setProcessingId(null);
     }
-    setProcessingId(null);
   }
 
   async function handleHRCancel(emp: Employee, req: ShiftRequest) {
     const id = `${emp.id}-${req.date}-hrcancel`;
     setProcessingId(id);
-    
-    if (req.type !== 'issue') {
-      if (req.previousAssignment) {
-        const newRoster = await upsertAssignment(roster, req.date, req.previousAssignment);
-        setRoster(newRoster);
-      } else {
-        const others = (roster[req.date] || []).filter(a => a.employeeId !== emp.id && a.employeeId !== emp.employeeId);
-        const newRoster = { ...roster, [req.date]: others };
-        setRoster(newRoster);
-        await import('@/lib/store').then(m => m.saveRoster(newRoster));
+    try {
+      if (req.type !== 'issue') {
+        if (req.previousAssignment) {
+          const newRoster = await upsertAssignment(roster, req.date, req.previousAssignment);
+          setRoster(newRoster);
+        } else {
+          const others = (roster[req.date] || []).filter(a => a.employeeId !== emp.id && a.employeeId !== emp.employeeId);
+          const newRoster = { ...roster, [req.date]: others };
+          setRoster(newRoster);
+          await import('@/lib/store').then(m => m.saveRoster(newRoster));
+        }
       }
-    }
 
-    invalidateCache();
-    const freshEmps = await getEmployees();
-    const e = freshEmps.find(x => x.id === emp.id);
-    if (e && e.requests) {
-      e.requests[req.date] = { ...e.requests[req.date], status: 'canceled' };
-      setEmployees(freshEmps);
-      await saveEmployees(freshEmps);
+      await updateShiftRequestStatus(emp.id, req.date, 'canceled');
+      setEmployees(prev => prev.map(e => {
+        if (e.id !== emp.id && e.employeeId !== emp.employeeId) return e;
+        if (!e.requests || !e.requests[req.date]) return e;
+        return {
+          ...e,
+          requests: {
+            ...e.requests,
+            [req.date]: { ...e.requests[req.date], status: 'canceled' },
+          }
+        };
+      }));
+    } finally {
+      setProcessingId(null);
     }
-    setProcessingId(null);
   }
 
   async function handleDeleteRequest(emp: Employee, req: ShiftRequest) {
     const id = `${emp.id}-${req.date}-delete`;
     setProcessingId(id);
-    invalidateCache();
-    const freshEmps = await getEmployees();
-    const e = freshEmps.find(x => x.id === emp.id);
-    if (e && e.requests) {
-      delete e.requests[req.date];
-      setEmployees(freshEmps);
-      await saveEmployees(freshEmps);
+    try {
+      await deleteShiftRequest(emp.id, req.date);
+      setEmployees(prev => prev.map(e => {
+        if (e.id !== emp.id && e.employeeId !== emp.employeeId) return e;
+        if (!e.requests) return e;
+        const copy = { ...e.requests };
+        delete copy[req.date];
+        return { ...e, requests: copy };
+      }));
+    } finally {
+      setProcessingId(null);
     }
-    setProcessingId(null);
   }
 
   function downloadRequestsCSV(type: 'all' | 'handler_pending' | 'hr_pending' | 'resolved' | 'canceled') {

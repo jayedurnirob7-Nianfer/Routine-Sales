@@ -52,7 +52,12 @@ export default function Nav() {
 
   // Fetch pending requests count for the notification dot
   useEffect(() => {
-    if (isAdmin) {
+    if (!isAdmin) {
+      setPendingIssueCount(0);
+      return;
+    }
+
+    const checkCount = () => {
       import('@/lib/store').then(({ getEmployees }) => {
         getEmployees().then(emps => {
           let count = 0;
@@ -66,8 +71,12 @@ export default function Nav() {
           setPendingIssueCount(count);
         }).catch(() => {});
       });
-    }
-  }, [isAdmin, pathname]); // Re-check when pathname changes (e.g. returning to dashboard)
+    };
+
+    checkCount();
+    const interval = setInterval(checkCount, 15000);
+    return () => clearInterval(interval);
+  }, [isAdmin, pathname]);
 
   let allLinks: {href: string, label: string}[] = [];
   if (isAdmin) {

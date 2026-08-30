@@ -16,8 +16,17 @@ function decodeRole(rawRole: string) {
   return { role, profileImage, password, requests };
 }
 
-export async function POST() {
+export async function POST(request: Request) {
   try {
+    const { searchParams } = new URL(request.url);
+    const secret = searchParams.get('secret');
+    if (secret !== 'routine_sales_migrate_confirm') {
+      return NextResponse.json({ 
+        status: 'error', 
+        message: 'Migration locked for data safety. Add ?secret=routine_sales_migrate_confirm to proceed.' 
+      }, { status: 403 });
+    }
+
     await connectToDatabase();
 
     const res = await fetch(`${GOOGLE_APP_SCRIPT_URL}?action=getAll&_t=${Date.now()}`);

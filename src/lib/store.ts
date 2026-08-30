@@ -176,12 +176,19 @@ async function getAll(): Promise<AllData> {
 }
 
 async function apiPost(action: string, payload: Record<string, unknown>): Promise<void> {
-  await fetch(API_URL, {
+  const res = await fetch(API_URL, {
     method: 'POST',
-    mode: 'no-cors',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action, ...payload }),
   });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`API error (${res.status}): ${text}`);
+  }
+  const json = await res.json().catch(() => ({ status: 'ok' }));
+  if (json && json.status === 'error') {
+    throw new Error(json.message || 'API request failed');
+  }
 }
 
 export async function getEmployees(): Promise<Employee[]> { return (await getAll()).employees; }
@@ -200,7 +207,76 @@ export async function getAdminCreds(): Promise<AdminCredentials> {
   try { return (await getAll()).auth; } catch { return {}; }
 }
 
-// ✅ Magically encodes the image URL into the role column before saving!
+// Atomic Shift Request operations
+export async function submitShiftRequest(employeeId: string, date: string, requestData: ShiftRequest): Promise<void> {
+  if (memCache) {
+    const emp = memCache.employees.find(e => e.id === employeeId || e.employeeId === employeeId);
+    if (emp) {
+      if (!emp.requests) emp.requests = {};
+      emp.requests[date] = requestData;
+      lsSet(LS_KEY, memCache);
+    }
+  }
+  await apiPost('submitRequest', { employeeId, date, requestData });
+}
+
+export async function updateShiftRequestStatus(
+  employeeId: string,
+  date: string,
+  status: string,
+  previousAssignment?: ShiftAssignment | null
+): Promise<void> {
+  if (memCache) {
+    const emp = memCache.employees.find(e => e.id === employeeId || e.employeeId === employeeId);
+    if (emp && emp.requests && emp.requests[date]) {
+      emp.requests[date].status = status as any;
+      if (previousAssignment !== undefined) {
+        emp.requests[date].previousAssignment = previousAssignment;
+      }
+      lsSet(LS_KEY, memCache);
+    }
+  }
+  await apiPost('updateRequestStatus', { employeeId, date, status, previousAssignment });
+}
+
+export async function bulkUpdateShiftRequestStatuses(
+  updates: Array<{ employeeId: string; date: string; status: string; previousAssignment?: ShiftAssignment | null }>
+): Promise<void> {
+  if (memCache) {
+    updates.forEach(u => {
+      const emp = memCache?.employees.find(e => e.id === u.employeeId || e.employeeId === u.employeeId);
+      if (emp && emp.requests && emp.requests[u.date]) {
+        emp.requests[u.date].status = u.status as any;
+        if (u.previousAssignment !== undefined) {
+          emp.requests[u.date].previousAssignment = u.previousAssignment;
+        }
+      }
+    });
+    lsSet(LS_KEY, memCache);
+  }
+  await apiPost('bulkUpdateRequestStatuses', { updates });
+}
+
+export async function deleteShiftRequest(employeeId: string, date: string): Promise<void> {
+  if (memCache) {
+    const emp = memCache.employees.find(e => e.id === employeeId || e.employeeId === employeeId);
+    if (emp && emp.requests) {
+      delete emp.requests[date];
+      lsSet(LS_KEY, memCache);
+    }
+  }
+  await apiPost('deleteRequest', { employeeId, date });
+}
+
+export async function deleteSingleEmployee(id: string): Promise<void> {
+  if (memCache) {
+    memCache.employees = memCache.employees.filter(e => e.id !== id && e.employeeId !== id);
+    lsSet(LS_KEY, memCache);
+  }
+  await apiPost('deleteEmployee', { id });
+}
+
+// ✅ Encodes the image URL into the role column before saving for legacy/profile compat
 export async function saveEmployees(employees: Employee[]): Promise<void> {
   if (memCache) { memCache = { ...memCache, employees }; lsSet(LS_KEY, memCache); }
   const payload = employees.map(e => {

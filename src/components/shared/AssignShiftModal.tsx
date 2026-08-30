@@ -4,7 +4,6 @@ import { Employee, ShiftType, RosterData, ShiftAssignment } from '@/types';
 import {
   SHIFT_INFO, WEEKDAYS,
   upsertAssignmentLocal, saveRoster, saveArchiveRoster,
-  applyWeeklyOffDay,
 } from '@/lib/store';
 import { ConfirmDialog } from '@/components/shared/Dialogs';
 
@@ -18,30 +17,30 @@ interface Props {
   onClose(): void;
 }
 
-
 export default function AssignShiftModal({ employee, date, currentAssignment, roster, isArchive = false, onSave, onClose }: Props) {
   const isExistingLeave = currentAssignment?.reason?.startsWith('LEAVE|');
   const isExistingOff = currentAssignment?.shift === 'off' && currentAssignment?.reason?.startsWith('OFF|');
   
-  const [shift, setShift]     = useState<ShiftType | 'leave'>(isExistingLeave ? 'leave' : (currentAssignment?.shift ?? 'morning'));
+  const [shift, setShift] = useState<ShiftType | 'leave'>(isExistingLeave ? 'leave' : (currentAssignment?.shift ?? employee.defaultShift ?? 'morning'));
   const [leaveType, setLeaveType] = useState<'full' | 'half'>(currentAssignment?.reason?.includes('HALF') ? 'half' : 'full');
   
   const initialTargetShift = isExistingLeave ? (currentAssignment?.shift as ShiftType) :
                              isExistingOff ? (currentAssignment.reason?.split('|')[1] as ShiftType) :
-                             (currentAssignment?.shift && currentAssignment.shift !== 'off' ? currentAssignment.shift : 'morning');
+                             (currentAssignment?.shift && currentAssignment.shift !== 'off' ? currentAssignment.shift : (employee.defaultShift || 'morning'));
   const [targetShift, setTargetShift] = useState<ShiftType>(initialTargetShift);
-  const [fromDate, setFrom]   = useState(date);
-  const [toDate, setTo]       = useState(date);
-  const [reason, setReason]   = useState('');
-  const [isWeekly, setIsWeekly] = useState(false);
-  const [includeWeeklyOff, setIncludeWeeklyOff] = useState(false);
-  const [saving, setSaving]   = useState(false);
+  const [fromDate, setFrom] = useState(date);
+  const [toDate, setTo] = useState(date);
+  const [reason, setReason] = useState('');
   
-  const [year, month] = date.split('-').map(Number);
   const clickedDateObj = new Date(date + 'T00:00:00');
-  const [selectedWeekday, setSelectedWeekday] = useState(clickedDateObj.getDay());
-  const [weeklyOffWeekday, setWeeklyOffWeekday] = useState(selectedWeekday);
+  const initialOffDay = typeof employee.weeklyOffDay === 'number' ? employee.weeklyOffDay : 5; // Default Friday (5) or employee's off day
+  const [includeWeeklyOff, setIncludeWeeklyOff] = useState(employee.weeklyOffDay !== undefined || isExistingOff);
+  const [weeklyOffWeekday, setWeeklyOffWeekday] = useState(initialOffDay);
   
+  // Off Day specific recurrence
+  const [offRecurrence, setOffRecurrence] = useState<'single' | 'weekly'>(isExistingOff ? 'weekly' : 'single');
+  
+  const [saving, setSaving] = useState(false);
   const [confirmConfig, setConfirmConfig] = useState<{ open: boolean; title: string; message: string; isDestructive?: boolean; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
 
   async function handleSave() {
@@ -49,23 +48,31 @@ export default function AssignShiftModal({ employee, date, currentAssignment, ro
     try {
       const [fy, fm, fd] = fromDate.split('-').map(Number);
       const [ty, tm, td] = toDate.split('-').map(Number);
-      const start   = new Date(fy, fm - 1, fd);
-      const end     = new Date(ty, tm - 1, td);
-      let current   = new Date(start);
-      let updated   = { ...roster };
+      const start = new Date(fy, fm - 1, fd);
+      const end = new Date(ty, tm - 1, td);
+      let current = new Date(start);
+      let updated = { ...roster };
 
       while (current <= end) {
+        const currentDayOfWeek = current.getDay();
         let isOffDay = false;
 
-        if (shift === 'off' && isWeekly) {
-          if (current.getDay() !== selectedWeekday) {
-            current.setDate(current.getDate() + 1);
-            continue;
+        if (shift === 'off') {
+          if (offRecurrence === 'weekly') {
+            if (currentDayOfWeek === weeklyOffWeekday) {
+              isOffDay = true;
+            } else {
+              isOffDay = false; // Work day with target base shift
+            }
+          } else {
+            isOffDay = true;
           }
-        }
-        
-        if (['morning', 'evening', 'night'].includes(shift) && includeWeeklyOff) {
-          if (current.getDay() === weeklyOffWeekday) {
+        } else if (['morning', 'evening', 'night'].includes(shift)) {
+          if (includeWeeklyOff && currentDayOfWeek === weeklyOffWeekday) {
+            isOffDay = true;
+          }
+        } else if (shift === 'leave') {
+          if (includeWeeklyOff && currentDayOfWeek === weeklyOffWeekday) {
             isOffDay = true;
           }
         }
@@ -73,26 +80,35 @@ export default function AssignShiftModal({ employee, date, currentAssignment, ro
         const y = current.getFullYear();
         const m = String(current.getMonth() + 1).padStart(2, '0');
         const d = String(current.getDate()).padStart(2, '0');
+        const dateKey = `${y}-${m}-${d}`;
         
-        let finalShift = isOffDay ? 'off' : shift;
-        let finalReason = reason || undefined;
-        
-        if (shift === 'leave') {
-           finalShift = targetShift;
-           finalReason = `LEAVE|${leaveType.toUpperCase()}` + (reason ? `|${reason}` : '');
-        } else if (shift === 'off') {
-           finalReason = `OFF|${targetShift}` + (reason ? `|${reason}` : '');
-        } else if (isOffDay) {
-           finalReason = `OFF|${shift}` + (reason ? `|${reason}` : '');
+        let finalShift: ShiftType = 'morning';
+        let finalReason: string | undefined = reason || undefined;
+
+        if (isOffDay) {
+          finalShift = 'off';
+          const base = (shift !== 'off' && shift !== 'leave') ? shift : targetShift;
+          finalReason = `OFF|${base}` + (reason ? `|${reason}` : '');
+        } else if (shift === 'leave') {
+          finalShift = targetShift;
+          finalReason = `LEAVE|${leaveType.toUpperCase()}` + (reason ? `|${reason}` : '');
+        } else if (shift === 'off' && offRecurrence === 'weekly') {
+          finalShift = targetShift;
+          finalReason = reason || undefined;
+        } else {
+          finalShift = shift as ShiftType;
+          finalReason = reason || undefined;
         }
         
-        updated = upsertAssignmentLocal(updated, `${y}-${m}-${d}`, {
-          employeeId:    employee.id,
-          shift: finalShift as ShiftType,
+        updated = upsertAssignmentLocal(updated, dateKey, {
+          employeeId: employee.id,
+          shift: finalShift,
           effectiveFrom: fromDate,
-          effectiveTo:   toDate,
+          effectiveTo: toDate,
           reason: finalReason,
+          isOffDayOverride: isOffDay,
         }, employee);
+
         current.setDate(current.getDate() + 1);
       }
 
@@ -102,7 +118,12 @@ export default function AssignShiftModal({ employee, date, currentAssignment, ro
         await saveRoster(updated);
       }
 
-      const updatedEmp: Employee = { ...employee, defaultShift: shift !== 'leave' && shift !== 'off' ? (shift as ShiftType) : employee.defaultShift };
+      const updatedEmp: Employee = { 
+        ...employee, 
+        defaultShift: shift !== 'leave' && shift !== 'off' ? (shift as ShiftType) : (targetShift || employee.defaultShift),
+        weeklyOffDay: includeWeeklyOff || (shift === 'off' && offRecurrence === 'weekly') ? weeklyOffWeekday : employee.weeklyOffDay,
+      };
+
       onSave(updated, updatedEmp);
     } finally {
       setSaving(false);
@@ -110,7 +131,6 @@ export default function AssignShiftModal({ employee, date, currentAssignment, ro
     }
   }
 
-  // ✅ FIXED: Now properly deletes the assignment from the database
   function handleClear() {
     setConfirmConfig({
       open: true,
@@ -123,10 +143,10 @@ export default function AssignShiftModal({ employee, date, currentAssignment, ro
         try {
           const [fy, fm, fd] = fromDate.split('-').map(Number);
           const [ty, tm, td] = toDate.split('-').map(Number);
-          const start   = new Date(fy, fm - 1, fd);
-          const end     = new Date(ty, tm - 1, td);
-          let current   = new Date(start);
-          let updated   = { ...roster };
+          const start = new Date(fy, fm - 1, fd);
+          const end = new Date(ty, tm - 1, td);
+          let current = new Date(start);
+          let updated = { ...roster };
 
           while (current <= end) {
             const y = current.getFullYear();
@@ -134,7 +154,6 @@ export default function AssignShiftModal({ employee, date, currentAssignment, ro
             const d = String(current.getDate()).padStart(2, '0');
             const dateStr = `${y}-${m}-${d}`;
 
-            // Filter out both the hidden UUID and the public Employee ID to guarantee deletion
             const others = (updated[dateStr] ?? []).filter(a => a.employeeId !== employee.id && a.employeeId !== employee.employeeId);
             updated = { ...updated, [dateStr]: others };
 
@@ -151,78 +170,83 @@ export default function AssignShiftModal({ employee, date, currentAssignment, ro
     });
   }
 
-  return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-      <div className="card p-6 w-full max-w-md space-y-5 max-h-[90vh] overflow-y-auto">
+  const selectedOffDayLabel = WEEKDAYS[weeklyOffWeekday];
 
-        <div className="flex items-center justify-between">
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+      <div className="card p-6 w-full max-w-md space-y-5 max-h-[92vh] overflow-y-auto shadow-2xl border border-gray-100 dark:border-gray-800">
+
+        {/* Header */}
+        <div className="flex items-center justify-between pb-3 border-b border-gray-100 dark:border-gray-800">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-teal-100 flex items-center justify-center text-teal-600 font-bold text-lg">⇄</div>
+            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-teal-500 to-emerald-600 text-white flex items-center justify-center font-bold text-base shadow-sm">
+              ⇄
+            </div>
             <div>
-              <h2 className="font-semibold text-lg">Assign Shift</h2>
-              <p className="text-xs text-gray-500">[{employee.employeeId}] {employee.name}</p>
+              <h2 className="font-bold text-lg text-gray-900 dark:text-white">Assign Shift & Off Day</h2>
+              <p className="text-xs text-gray-500 font-medium">[{employee.employeeId}] {employee.name}</p>
             </div>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl">✕</button>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl font-bold p-1">✕</button>
         </div>
 
+        {/* Shift Type Selection */}
         <div>
-          <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Shift Type</label>
+          <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">1. Select Shift</label>
           <div className="grid grid-cols-2 gap-2">
             {(['morning', 'evening', 'night', 'off', 'leave'] as const).map(s => {
               if (s === 'leave') {
                 return (
-                  <button key={s} onClick={() => { setShift(s); }}
-                    className={`px-3 py-2.5 rounded-xl border-2 text-left transition-all
+                  <button key={s} onClick={() => setShift(s)}
+                    className={`px-3 py-2.5 rounded-xl border-2 text-left transition-all col-span-2 sm:col-span-1
                       ${shift === s
-                        ? 'bg-amber-50 text-amber-900 border-amber-300 dark:bg-amber-900/30 dark:text-amber-100 dark:border-amber-700 font-semibold'
-                        : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'}`}>
-                    <div className="text-sm font-medium">✈️ Leave</div>
-                    <div className="text-xs opacity-60">Full or Half Day</div>
+                        ? 'bg-rose-50 text-rose-900 border-rose-400 dark:bg-rose-900/30 dark:text-rose-100 dark:border-rose-600 font-bold shadow-sm'
+                        : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'}`}>
+                    <div className="text-sm font-semibold flex items-center gap-1.5"><span>✈️</span> Leave</div>
+                    <div className="text-[11px] opacity-70">Full or Half Day</div>
                   </button>
                 );
               }
               const info = SHIFT_INFO[s as ShiftType];
               return (
-                <button key={s} onClick={() => { setShift(s); }}
+                <button key={s} onClick={() => setShift(s)}
                   className={`px-3 py-2.5 rounded-xl border-2 text-left transition-all
                     ${shift === s
-                      ? `${info.bg} ${info.color} ${info.border} font-semibold`
-                      : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'}`}>
-                  <div className="text-sm font-medium">{info.label}</div>
-                  <div className="text-xs opacity-60">{info.time}</div>
+                      ? `${info.bg} ${info.color} ${info.border} font-bold shadow-sm ring-1 ring-current/20`
+                      : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'}`}>
+                  <div className="text-sm font-semibold">{info.label}</div>
+                  <div className="text-[11px] opacity-70">{info.time}</div>
                 </button>
               );
             })}
           </div>
         </div>
 
-        {(shift === 'leave' || shift === 'off') && (
-          <div className="space-y-3">
-            {shift === 'leave' && (
-              <>
-                <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500">Leave Type</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button onClick={() => setLeaveType('full')}
-                    className={`py-2 px-3 rounded-xl border-2 text-sm text-center transition-all ${leaveType === 'full' ? 'border-amber-500 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 font-semibold' : 'border-gray-200 dark:border-gray-700 hover:border-gray-400'}`}>
-                    Full Day
-                  </button>
-                  <button onClick={() => setLeaveType('half')}
-                    className={`py-2 px-3 rounded-xl border-2 text-sm text-center transition-all ${leaveType === 'half' ? 'border-amber-500 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 font-semibold' : 'border-gray-200 dark:border-gray-700 hover:border-gray-400'}`}>
-                    Half Day
-                  </button>
-                </div>
-              </>
-            )}
+        {/* Leave Configuration */}
+        {shift === 'leave' && (
+          <div className="p-3.5 bg-rose-50/50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/40 rounded-2xl space-y-3 animate-in fade-in duration-200">
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-rose-800 dark:text-rose-300 mb-1.5">Leave Duration</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={() => setLeaveType('full')}
+                  className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all ${leaveType === 'full' ? 'border-rose-500 bg-rose-500 text-white shadow-sm' : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300'}`}>
+                  Full Day Leave
+                </button>
+                <button onClick={() => setLeaveType('half')}
+                  className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all ${leaveType === 'half' ? 'border-rose-500 bg-rose-500 text-white shadow-sm' : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300'}`}>
+                  Half Day Leave
+                </button>
+              </div>
+            </div>
             
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">{shift === 'off' ? 'Off from which shift?' : 'Which Shift?'}</label>
+              <label className="block text-xs font-bold uppercase tracking-wider text-rose-800 dark:text-rose-300 mb-1.5">Base Working Shift</label>
               <div className="grid grid-cols-3 gap-1.5">
                 {(['morning', 'evening', 'night'] as ShiftType[]).map(hs => {
                   const info = SHIFT_INFO[hs];
                   return (
                     <button key={hs} onClick={() => setTargetShift(hs)}
-                      className={`py-1.5 px-2 rounded-lg border-2 text-xs text-center transition-all ${targetShift === hs ? `${info.border} ${info.bg} ${info.color} font-bold` : 'border-gray-200 dark:border-gray-700 hover:border-gray-400'}`}>
+                      className={`py-1.5 px-2 rounded-lg border text-xs font-semibold transition-all ${targetShift === hs ? `${info.border} ${info.bg} ${info.color} font-bold ring-1 ring-current` : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300'}`}>
                       {info.label}
                     </button>
                   );
@@ -232,103 +256,157 @@ export default function AssignShiftModal({ employee, date, currentAssignment, ro
           </div>
         )}
 
-        <div className="space-y-4 pt-2 border-t border-gray-100 dark:border-gray-800">
-          
-          {shift === 'off' && (
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Recurrence</label>
-              <div className="grid grid-cols-2 gap-2">
-                <button onClick={() => setIsWeekly(false)}
-                  className={`py-2 px-3 rounded-xl border-2 text-sm text-center transition-all ${!isWeekly ? 'border-gray-500 bg-gray-100 dark:bg-gray-800 font-semibold' : 'border-gray-200 dark:border-gray-700 hover:border-gray-400'}`}>
-                  Single Day
-                </button>
-                <button onClick={() => setIsWeekly(true)}
-                  className={`py-2 px-3 rounded-xl border-2 text-sm text-center transition-all ${isWeekly ? 'border-gray-500 bg-gray-100 dark:bg-gray-800 font-semibold' : 'border-gray-200 dark:border-gray-700 hover:border-gray-400'}`}>
-                  Weekly Off Day
-                </button>
-              </div>
-              
-              {isWeekly && (
-                <div className="mt-4 animate-in fade-in slide-in-from-top-2 duration-200">
-                  <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Select Day of Week</label>
-                  <div className="grid grid-cols-7 gap-1">
-                    {WEEKDAYS.map((day, idx) => (
-                      <button key={idx} onClick={() => setSelectedWeekday(idx)}
-                        className={`py-2 rounded-lg text-xs font-medium border transition-all ${selectedWeekday === idx ? 'bg-gray-700 text-white border-gray-700 shadow-sm' : 'border-gray-200 dark:border-gray-700 hover:border-gray-400 text-gray-600 dark:text-gray-300'}`}>
-                        {day.slice(0, 3)}
-                      </button>
-                    ))}
-                  </div>
-                  <p className="text-xs text-gray-400 mt-3 bg-gray-50 dark:bg-gray-800 p-2 rounded-lg border border-gray-100 dark:border-gray-700">
-                    This sets every <strong>{WEEKDAYS[selectedWeekday]}</strong> as an off day within the date range selected below. All other days in this range will remain untouched.
-                  </p>
-                </div>
-              )}
+        {/* Off Day Configuration */}
+        {shift === 'off' && (
+          <div className="p-3.5 bg-stone-50 dark:bg-stone-900/30 border border-stone-200 dark:border-stone-800 rounded-2xl space-y-3 animate-in fade-in duration-200">
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={() => setOffRecurrence('single')}
+                className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all ${offRecurrence === 'single' ? 'border-stone-600 bg-stone-700 text-white shadow-sm' : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300'}`}>
+                Specific Dates Only
+              </button>
+              <button onClick={() => setOffRecurrence('weekly')}
+                className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all ${offRecurrence === 'weekly' ? 'border-stone-600 bg-stone-700 text-white shadow-sm' : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300'}`}>
+                Weekly Recurring
+              </button>
             </div>
-          )}
 
-          {['morning', 'evening', 'night'].includes(shift) && (
-            <div className="pt-2">
-              <label className="flex items-center gap-3 mb-3 cursor-pointer">
-                <input type="checkbox" checked={includeWeeklyOff} onChange={e => setIncludeWeeklyOff(e.target.checked)} className="w-4 h-4 text-teal-600 rounded cursor-pointer" />
-                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Include Weekly Off Day</span>
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-stone-700 dark:text-stone-300 mb-1.5">Regular Shift on Workdays</label>
+              <div className="grid grid-cols-3 gap-1.5">
+                {(['morning', 'evening', 'night'] as ShiftType[]).map(hs => {
+                  const info = SHIFT_INFO[hs];
+                  return (
+                    <button key={hs} onClick={() => setTargetShift(hs)}
+                      className={`py-1.5 px-2 rounded-lg border text-xs font-semibold transition-all ${targetShift === hs ? `${info.border} ${info.bg} ${info.color} font-bold ring-1 ring-current` : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300'}`}>
+                      {info.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 2. Unified Weekly Off Day Section */}
+        {(shift !== 'off' || offRecurrence === 'weekly') && (
+          <div className="p-4 bg-teal-50/60 dark:bg-teal-950/20 border border-teal-200/70 dark:border-teal-900/50 rounded-2xl space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                <input 
+                  type="checkbox" 
+                  checked={includeWeeklyOff} 
+                  onChange={e => setIncludeWeeklyOff(e.target.checked)} 
+                  className="w-4 h-4 text-teal-600 rounded focus:ring-teal-500 cursor-pointer accent-teal-600" 
+                />
+                <span className="text-xs font-bold uppercase tracking-wider text-teal-900 dark:text-teal-200">
+                  2. Include Weekly Off Day
+                </span>
               </label>
-              
-              {includeWeeklyOff && (
-                <div className="grid grid-cols-7 gap-1 mb-4">
+              <span className="text-[11px] font-bold text-teal-700 dark:text-teal-400 bg-teal-100 dark:bg-teal-900/50 px-2 py-0.5 rounded-full">
+                {includeWeeklyOff ? `Every ${selectedOffDayLabel}` : 'Off'}
+              </span>
+            </div>
+
+            {includeWeeklyOff && (
+              <div className="space-y-2 animate-in fade-in slide-in-from-top-1 duration-200">
+                <p className="text-[11px] text-teal-800 dark:text-teal-300">
+                  Choose which day of the week will be their off day:
+                </p>
+                <div className="grid grid-cols-7 gap-1">
                   {WEEKDAYS.map((day, i) => (
-                    <button key={day} onClick={() => setWeeklyOffWeekday(i)}
-                      className={`py-1.5 text-xs font-semibold rounded-lg border-2 transition-all ${weeklyOffWeekday === i ? 'bg-teal-500 text-white border-teal-600 shadow-sm' : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:border-gray-400'}`}>
+                    <button 
+                      key={day} 
+                      type="button"
+                      onClick={() => setWeeklyOffWeekday(i)}
+                      className={`py-2 text-xs font-bold rounded-xl border transition-all ${
+                        weeklyOffWeekday === i 
+                          ? 'bg-teal-600 text-white border-teal-700 shadow-md scale-105 ring-2 ring-teal-400/30' 
+                          : 'border-teal-200 dark:border-teal-800/80 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:border-teal-400'
+                      }`}
+                    >
                       {day.substring(0, 3)}
                     </button>
                   ))}
                 </div>
-              )}
-            </div>
-          )}
+                <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-1.5 flex items-center gap-1.5">
+                  <span>💡</span>
+                  <span>
+                    In the range below, every <strong>{selectedOffDayLabel}</strong> gets <strong>Off Day</strong>, and other days get <strong>{shift === 'leave' ? 'Leave' : shift === 'off' ? targetShift : shift}</strong>.
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
+        {/* 3. Date Range Selection */}
+        <div className="space-y-3 pt-1">
+          <label className="block text-xs font-bold uppercase tracking-wider text-gray-500">3. Date Range</label>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">From Date</label>
-              <input type="date" className="input" value={fromDate}
-                onChange={e => { setFrom(e.target.value); if (e.target.value > toDate) setTo(e.target.value); }} />
+              <span className="block text-[11px] font-semibold text-gray-600 dark:text-gray-400 mb-1">From Date</span>
+              <input 
+                type="date" 
+                className="input w-full font-medium" 
+                value={fromDate}
+                onChange={e => { setFrom(e.target.value); if (e.target.value > toDate) setTo(e.target.value); }} 
+              />
             </div>
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">To Date</label>
-              <input type="date" className="input" value={toDate} min={fromDate}
-                onChange={e => setTo(e.target.value)} />
+              <span className="block text-[11px] font-semibold text-gray-600 dark:text-gray-400 mb-1">To Date</span>
+              <input 
+                type="date" 
+                className="input w-full font-medium" 
+                value={toDate} 
+                min={fromDate}
+                onChange={e => setTo(e.target.value)} 
+              />
             </div>
-          </div>
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">Reason <span className="text-gray-400 font-normal lowercase">(optional)</span></label>
-            <textarea
-              className="input min-h-[60px]"
-              placeholder={shift === 'off' ? "Reason for Off Day..." : "Reason for this shift change..."}
-              value={reason} onChange={e => setReason(e.target.value)}
-            />
           </div>
         </div>
 
-        <div className="flex items-center justify-between pt-2">
+        {/* Reason */}
+        <div>
+          <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-1">
+            Reason <span className="text-gray-400 font-normal lowercase">(optional)</span>
+          </label>
+          <textarea
+            className="input min-h-[55px] w-full text-xs"
+            placeholder={shift === 'off' ? "Reason for Off Day..." : shift === 'leave' ? "Reason for Leave..." : "Reason for shift assignment..."}
+            value={reason} 
+            onChange={e => setReason(e.target.value)}
+          />
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center justify-between pt-3 border-t border-gray-100 dark:border-gray-800">
           <button 
+            type="button"
             onClick={handleClear} 
             disabled={saving}
-            className="text-xs font-medium text-red-500 hover:text-red-700 dark:text-red-400 border border-transparent hover:border-red-200 dark:hover:border-red-900 px-3 py-2 rounded-lg transition-colors">
-            🗑️ Clear Dates
+            className="text-xs font-semibold text-rose-500 hover:text-rose-700 dark:text-rose-400 border border-transparent hover:border-rose-200 dark:hover:border-rose-900/50 px-2.5 py-2 rounded-lg transition-colors">
+            🗑️ Clear Range
           </button>
           
           <div className="flex gap-2">
-            <button onClick={onClose} className="btn-ghost border border-gray-200 dark:border-gray-700">Cancel</button>
-            <button onClick={handleSave} disabled={saving}
-              className="btn-primary disabled:opacity-40 disabled:cursor-not-allowed">
-              {saving ? 'Saving…' : shift === 'leave'
-                ? `Assign ${leaveType === 'full' ? 'Full Day' : 'Half Day'} Leave`
-                : shift === 'off' ? 'Assign Off Day' : 'Assign Shift'}
+            <button type="button" onClick={onClose} className="btn-ghost border border-gray-200 dark:border-gray-700 text-xs">Cancel</button>
+            <button 
+              type="button" 
+              onClick={handleSave} 
+              disabled={saving || !fromDate || !toDate}
+              className="btn-primary text-xs flex items-center gap-1.5 shadow-lg shadow-teal-500/20 disabled:opacity-40">
+              {saving ? 'Saving…' : (
+                includeWeeklyOff
+                  ? `Assign ${shift === 'leave' ? 'Leave' : shift === 'off' ? targetShift : shift} + ${selectedOffDayLabel} Off`
+                  : shift === 'leave' ? `Assign ${leaveType === 'full' ? 'Full' : 'Half'} Leave` : shift === 'off' ? 'Assign Off Day' : 'Assign Shift'
+              )}
             </button>
           </div>
         </div>
+
       </div>
       <ConfirmDialog {...confirmConfig} onCancel={() => setConfirmConfig(p => ({ ...p, open: false }))} />
     </div>
   );
 }
+

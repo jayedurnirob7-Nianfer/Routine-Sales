@@ -737,7 +737,14 @@ export default function EmployeesPage() {
           date={assignTarget.date}
           currentAssignment={getAssignment(roster, assignTarget.emp, assignTarget.date)}
           roster={roster}
-          onSave={(newRoster) => { setRoster(newRoster); }}
+          onSave={(newRoster, updatedEmp) => { 
+            setRoster(newRoster); 
+            if (updatedEmp) {
+              const updated = employees.map(e => e.id === updatedEmp.id ? updatedEmp : e);
+              saveEmployees(updated);
+              setEmployees(updated);
+            }
+          }}
           onClose={() => setAssignTarget(null)}
         />
       )}

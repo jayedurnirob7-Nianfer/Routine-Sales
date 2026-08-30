@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/auth';
-import { getRoster, getAssignment, saveEmployees, getEmployees, SHIFT_INFO, WEEKDAYS, invalidateCache } from '@/lib/store';
+import { getRoster, getAssignment, saveEmployees, getEmployees, submitShiftRequest, SHIFT_INFO, WEEKDAYS, invalidateCache } from '@/lib/store';
 import { Employee, RosterData, ShiftType, ShiftRequest } from '@/types';
 
 function Avatar({ emp, className = '' }: { emp: Employee, className?: string }) {
@@ -63,16 +63,6 @@ export default function MySchedulePage() {
     setSaving(true);
     
     try {
-      // CRITICAL: Force fresh fetch to avoid overwriting Google Sheets with stale local cache!
-      invalidateCache();
-      const emps = await getEmployees();
-      
-      const empIdx = emps.findIndex(e => e.id === employeeUser.id);
-      if (empIdx === -1) {
-        setSaving(false);
-        return;
-      }
-
       let reasonToSave = undefined;
       if (reqType === 'leave' || reqType === 'issue') {
         reasonToSave = reqReason;
@@ -85,8 +75,7 @@ export default function MySchedulePage() {
         reasonToSave = `From: ${oldShiftStr}`;
       }
 
-      const newReqs = { ...emps[empIdx].requests };
-      newReqs[reqDate] = {
+      const newReq: ShiftRequest = {
         date: reqDate,
         type: reqType,
         requestedShift: reqType === 'shift' ? reqShift : undefined,
@@ -94,10 +83,10 @@ export default function MySchedulePage() {
         status: 'pending',
         createdAt: new Date().toISOString()
       };
-      emps[empIdx].requests = newReqs;
 
-      await saveEmployees(emps);
-      setLocalRequests(newReqs);
+      // Atomic write directly to MongoDB without overwriting other records or requests
+      await submitShiftRequest(employeeUser.id, reqDate, newReq);
+      setLocalRequests(prev => ({ ...prev, [reqDate]: newReq }));
       
       setReqDate(null);
       setReqReason('');
