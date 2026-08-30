@@ -73,6 +73,21 @@ export async function GET() {
   }
 }
 
+async function findEmployeeDoc(employeeId: string | number) {
+  if (!employeeId) return null;
+  const strId = String(employeeId).trim();
+  const searchConditions: any[] = [
+    { id: strId },
+    { employeeId: strId },
+  ];
+  const numId = Number(strId);
+  if (!isNaN(numId)) {
+    searchConditions.push({ id: numId });
+    searchConditions.push({ employeeId: numId });
+  }
+  return Employee.findOne({ $or: searchConditions });
+}
+
 export async function POST(request: Request) {
   try {
     await connectToDatabase();
@@ -104,22 +119,26 @@ export async function POST(request: Request) {
         return NextResponse.json({ status: 'error', message: 'Missing parameters' }, { status: 400 });
       }
       
-      const empDoc = await Employee.findOne({ $or: [{ id: employeeId }, { employeeId: employeeId }] });
-      if (empDoc) {
-        let currentReqs = empDoc.requests;
-        if (typeof currentReqs === 'string') {
-          try { currentReqs = JSON.parse(currentReqs); } catch { currentReqs = {}; }
-        } else if (!currentReqs || typeof currentReqs !== 'object') {
-          currentReqs = {};
-        } else {
-          currentReqs = { ...currentReqs };
-        }
-        
-        currentReqs[date] = requestData;
-        empDoc.requests = currentReqs;
-        empDoc.markModified('requests');
-        await empDoc.save();
+      const empDoc = await findEmployeeDoc(employeeId);
+      if (!empDoc) {
+        console.error(`[submitRequest] Employee not found for ID: ${employeeId}`);
+        return NextResponse.json({ status: 'error', message: `Employee with ID ${employeeId} not found` }, { status: 404 });
       }
+
+      let currentReqs = empDoc.requests;
+      if (typeof currentReqs === 'string') {
+        try { currentReqs = JSON.parse(currentReqs); } catch { currentReqs = {}; }
+      } else if (!currentReqs || typeof currentReqs !== 'object') {
+        currentReqs = {};
+      } else {
+        currentReqs = { ...currentReqs };
+      }
+      
+      currentReqs[date] = requestData;
+      empDoc.requests = currentReqs;
+      empDoc.markModified('requests');
+      await empDoc.save();
+      
       return NextResponse.json({ status: 'ok' });
     }
 
@@ -129,7 +148,7 @@ export async function POST(request: Request) {
         return NextResponse.json({ status: 'error', message: 'Missing parameters' }, { status: 400 });
       }
       
-      const empDoc = await Employee.findOne({ $or: [{ id: employeeId }, { employeeId: employeeId }] });
+      const empDoc = await findEmployeeDoc(employeeId);
       if (empDoc && empDoc.requests) {
         let currentReqs = empDoc.requests;
         if (typeof currentReqs === 'string') {
@@ -155,7 +174,7 @@ export async function POST(request: Request) {
       const { updates } = payload;
       if (Array.isArray(updates) && updates.length > 0) {
         for (const u of updates) {
-          const empDoc = await Employee.findOne({ $or: [{ id: u.employeeId }, { employeeId: u.employeeId }] });
+          const empDoc = await findEmployeeDoc(u.employeeId);
           if (empDoc && empDoc.requests) {
             let currentReqs = empDoc.requests;
             if (typeof currentReqs === 'string') {
@@ -185,7 +204,7 @@ export async function POST(request: Request) {
         return NextResponse.json({ status: 'error', message: 'Missing parameters' }, { status: 400 });
       }
       
-      const empDoc = await Employee.findOne({ $or: [{ id: employeeId }, { employeeId: employeeId }] });
+      const empDoc = await findEmployeeDoc(employeeId);
       if (empDoc && empDoc.requests) {
         let currentReqs = empDoc.requests;
         if (typeof currentReqs === 'string') {
@@ -201,6 +220,7 @@ export async function POST(request: Request) {
       }
       return NextResponse.json({ status: 'ok' });
     }
+
 
 
     if (action === 'deleteEmployee') {

@@ -52,15 +52,20 @@ export default function IssuesPage() {
 
   // Extract all requests sorted by Employee ID and Date
   const allRequests = employees.flatMap(emp => {
-    if (!emp.requests) return [];
-    return Object.values(emp.requests).map(r => ({ emp, req: r }));
+    let reqs = emp.requests;
+    if (typeof reqs === 'string') {
+      try { reqs = JSON.parse(reqs); } catch { reqs = {}; }
+    }
+    if (!reqs || typeof reqs !== 'object') return [];
+    return Object.values(reqs).map(r => ({ emp, req: r as ShiftRequest }));
   }).sort((a, b) => {
     const idA = String(a.emp.employeeId || a.emp.id);
     const idB = String(b.emp.employeeId || b.emp.id);
     const cmp = idA.localeCompare(idB, undefined, { numeric: true, sensitivity: 'base' });
     if (cmp !== 0) return cmp;
-    return a.req.date.localeCompare(b.req.date) || a.req.createdAt.localeCompare(b.req.createdAt);
+    return (a.req.date || '').localeCompare(b.req.date || '') || (a.req.createdAt || '').localeCompare(b.req.createdAt || '');
   });
+
 
   const handlerPendingRequests = allRequests.filter(i => !i.req.status || i.req.status === 'pending');
   const hrPendingRequests = allRequests.filter(i => i.req.status === 'handler_approved');
