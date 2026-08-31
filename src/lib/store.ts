@@ -356,11 +356,54 @@ export async function overrideSingleDay(
   }, isArchive);
 }
 
+export function parseLeaveReason(rawReason?: string): { isLeave: boolean; leaveType: 'full' | 'half'; reasonText: string } {
+  if (!rawReason || !rawReason.startsWith('LEAVE|')) {
+    return { isLeave: false, leaveType: 'full', reasonText: '' };
+  }
+  const parts = rawReason.split('|');
+  if (parts[1] === 'FULL' || parts[1] === 'HALF') {
+    const isHalf = parts[1] === 'HALF';
+    const text = parts.slice(2).join('|').trim();
+    return {
+      isLeave: true,
+      leaveType: isHalf ? 'half' : 'full',
+      reasonText: text || (isHalf ? 'Half Day Leave' : 'Leave')
+    };
+  }
+  // format: LEAVE|from|to|reason
+  if (parts.length >= 4) {
+    const text = parts.slice(3).join('|').trim();
+    return {
+      isLeave: true,
+      leaveType: 'full',
+      reasonText: text || 'Leave'
+    };
+  }
+  const text = parts.slice(1).join('|').trim();
+  return {
+    isLeave: true,
+    leaveType: 'full',
+    reasonText: text || 'Leave'
+  };
+}
+
 export function getLeaveOnDate(roster: RosterData, employee: Employee, dateStr: string): LeaveRecord | null {
   const a = (roster[dateStr] ?? []).find(x => (x.employeeId === employee.id || x.employeeId === employee.employeeId) && x.reason?.startsWith('LEAVE|'));
   if (a) {
+    const { reasonText } = parseLeaveReason(a.reason);
     const parts = a.reason!.split('|');
-    return { employeeId: employee.id, fromDate: parts[1], toDate: parts[2], reason: parts[3] || undefined };
+    let fromDate = a.effectiveFrom || dateStr;
+    let toDate = a.effectiveTo || dateStr;
+    if (parts.length >= 4 && parts[1].includes('-') && parts[2].includes('-')) {
+      fromDate = parts[1];
+      toDate = parts[2];
+    }
+    return { 
+      employeeId: employee.id, 
+      fromDate, 
+      toDate, 
+      reason: reasonText || undefined 
+    };
   }
   return null;
 }
@@ -374,10 +417,9 @@ export function getActiveLeave(roster: RosterData, employee: Employee): LeaveRec
   for (let i = -3; i <= 31; i++) {
     const dt = new Date(new Date(today + 'T00:00:00').getTime() + i * 86400000);
     const dateStr = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
-    const a = (roster[dateStr] ?? []).find(x => (x.employeeId === employee.id || x.employeeId === employee.employeeId) && x.reason?.startsWith('LEAVE|'));
-    if (a) {
-      const parts = a.reason!.split('|');
-      if (parts[2] >= today) return { employeeId: employee.id, fromDate: parts[1], toDate: parts[2], reason: parts[3] || undefined };
+    const leave = getLeaveOnDate(roster, employee, dateStr);
+    if (leave && leave.toDate >= today) {
+      return leave;
     }
   }
   return null;

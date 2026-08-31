@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
-import { getEmployees, getRoster, saveRoster, saveEmployees, SHIFT_INFO, todayKey, formatDate, get15Days, getNightShiftProgress, invalidateCache, getAssignment, upsertAssignment, isOnLeave } from '@/lib/store';
+import { getEmployees, getRoster, saveRoster, saveEmployees, SHIFT_INFO, todayKey, formatDate, get15Days, getNightShiftProgress, invalidateCache, getAssignment, upsertAssignment, isOnLeave, parseLeaveReason } from '@/lib/store';
 import { Employee, RosterData, ShiftType, ShiftRequest } from '@/types';
 import { useAuth } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
@@ -102,7 +102,12 @@ export default function DashboardPage() {
 
   function getShiftEmployees(shift: ShiftType, date: string = today): Employee[] {
     const shiftEmpIds = (roster[date] ?? [])
-      .filter(a => a.shift === shift)
+      .filter(a => {
+        if (a.shift !== shift) return false;
+        // Full day leaves are not actively working, so exclude them from the working count/list
+        const isFullLeave = a.reason?.startsWith('LEAVE|') && !a.reason?.includes('LEAVE|HALF');
+        return !isFullLeave;
+      })
       .map(a => a.employeeId);
     
     // Return employees strictly in their global priority order
@@ -135,52 +140,72 @@ export default function DashboardPage() {
     }
   }
 
-  // ✅ Intelligently routes Off days by looking up to 7 days in the past (Fixes Nahid's issue!)
-  function getOffEmployeesByPrevShift(date: string) {
-    const offToday = getShiftEmployees('off', date);
+  // ✅ Intelligently routes Off days and Leaves by their respective working/base shift
+  function getOffAndLeaveEmployeesByShift(date: string) {
     const groupedOff: Record<ShiftType, Employee[]> = { morning: [], evening: [], night: [], off: [] };
     const groupedLeave: Record<ShiftType, Employee[]> = { morning: [], evening: [], night: [], off: [] };
     const unsortedOff: Employee[] = [];
     const unsortedLeave: Employee[] = [];
 
-    offToday.forEach(emp => {
+    employees.forEach(emp => {
       const assignment = getAssignment(roster, emp, date);
-      const isLeave = assignment?.reason?.startsWith('LEAVE|');
+      if (!assignment) return;
 
-      let prevShift: ShiftType | null = null;
-      
-      if (assignment?.reason?.startsWith('OFF|')) {
-        prevShift = assignment.reason.split('|')[1] as ShiftType;
-      } else {
-        // Look back up to 7 days to find their last real working shift (skips leaves and off days!)
-        for (let i = 1; i <= 7; i++) {
-          const pastDate = prevDateKeyN(date, i);
-          const pastAssignment = getAssignment(roster, emp, pastDate);
-          if (pastAssignment && TODAY_SHIFTS.includes(pastAssignment.shift)) {
-            prevShift = pastAssignment.shift;
-            break;
+      const isLeave = assignment.reason?.startsWith('LEAVE|');
+      const isOff = assignment.shift === 'off' && !isLeave;
+
+      if (isLeave) {
+        let baseShift: ShiftType | null = null;
+        if (TODAY_SHIFTS.includes(assignment.shift)) {
+          baseShift = assignment.shift;
+        } else {
+          // If assignment.shift is 'off', find their base working shift
+          for (let i = 1; i <= 7; i++) {
+            const pastDate = prevDateKeyN(date, i);
+            const pastAssignment = getAssignment(roster, emp, pastDate);
+            if (pastAssignment && TODAY_SHIFTS.includes(pastAssignment.shift) && !pastAssignment.reason?.startsWith('LEAVE|')) {
+              baseShift = pastAssignment.shift;
+              break;
+            }
           }
         }
-      }
-
-      if (!prevShift) {
-        prevShift = emp.defaultShift ?? 'morning';
-      }
-
-      if (TODAY_SHIFTS.includes(prevShift)) {
-        if (isLeave) {
-          groupedLeave[prevShift].push(emp);
-        } else {
-          groupedOff[prevShift].push(emp);
+        if (!baseShift) {
+          baseShift = emp.defaultShift ?? 'morning';
         }
-      } else {
-        if (isLeave) {
+
+        if (TODAY_SHIFTS.includes(baseShift)) {
+          groupedLeave[baseShift].push(emp);
+        } else {
           unsortedLeave.push(emp);
+        }
+      } else if (isOff) {
+        let prevShift: ShiftType | null = null;
+        if (assignment.reason?.startsWith('OFF|')) {
+          prevShift = assignment.reason.split('|')[1] as ShiftType;
+        } else {
+          // Look back up to 7 days to find their last real working shift (skips leaves and off days!)
+          for (let i = 1; i <= 7; i++) {
+            const pastDate = prevDateKeyN(date, i);
+            const pastAssignment = getAssignment(roster, emp, pastDate);
+            if (pastAssignment && TODAY_SHIFTS.includes(pastAssignment.shift) && !pastAssignment.reason?.startsWith('LEAVE|')) {
+              prevShift = pastAssignment.shift;
+              break;
+            }
+          }
+        }
+
+        if (!prevShift) {
+          prevShift = emp.defaultShift ?? 'morning';
+        }
+
+        if (TODAY_SHIFTS.includes(prevShift)) {
+          groupedOff[prevShift].push(emp);
         } else {
           unsortedOff.push(emp);
         }
       }
     });
+
     return { groupedOff, groupedLeave, unsortedOff, unsortedLeave };
   }
 
@@ -189,7 +214,7 @@ export default function DashboardPage() {
   function getUpcomingDays() {
     const upcomingDates = all15Days.filter(date => date !== today);
     return upcomingDates.map(date => {
-      const { groupedOff, groupedLeave, unsortedOff, unsortedLeave } = getOffEmployeesByPrevShift(date);
+      const { groupedOff, groupedLeave, unsortedOff, unsortedLeave } = getOffAndLeaveEmployeesByShift(date);
       return {
         date,
         shifts: TODAY_SHIFTS.map(shift => ({
@@ -229,7 +254,7 @@ export default function DashboardPage() {
   }
 
   const upcomingDays = getUpcomingDays();
-  const todayData = getOffEmployeesByPrevShift(today);
+  const todayData = getOffAndLeaveEmployeesByShift(today);
 
   function downloadNightShiftCSV() {
     const [year, month] = today.split('-').map(Number);
@@ -457,11 +482,20 @@ export default function DashboardPage() {
                   </div>
                   {leaveEmployees.map(emp => {
                      const assignment = getAssignment(roster, emp, date);
-                     const reason = assignment?.reason?.split('|')[3] || 'Leave';
+                     const { leaveType, reasonText } = parseLeaveReason(assignment?.reason);
                      return (
-                       <div key={emp.id} className="bg-amber-50/50 dark:bg-amber-900/10 p-1.5 rounded-lg border border-amber-200 dark:border-amber-900/50 flex flex-col hover:bg-amber-100/50 dark:hover:bg-amber-900/20 transition-colors">
+                       <div key={emp.id} className="bg-amber-50/50 dark:bg-amber-900/10 p-2 rounded-lg border border-amber-200/80 dark:border-amber-900/50 flex flex-col hover:bg-amber-100/50 dark:hover:bg-amber-900/20 transition-colors space-y-1">
                          <EmployeeRow emp={emp} date={date} shift={shift} muted />
-                         <span className="text-[10px] text-amber-600 dark:text-amber-500 ml-10 pb-0.5 -mt-1 font-medium">{reason}</span>
+                         <div className="flex items-center gap-1.5 ml-9 text-[11px]">
+                           <span className="font-semibold text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/40 px-1.5 py-0.5 rounded text-[10px]">
+                             {leaveType === 'half' ? '½ Half Day' : 'Leave'}
+                           </span>
+                           {reasonText && (
+                             <span className="text-amber-800 dark:text-amber-300 font-medium truncate">
+                               {reasonText}
+                             </span>
+                           )}
+                         </div>
                        </div>
                      );
                   })}
@@ -502,25 +536,30 @@ export default function DashboardPage() {
   function LeaveCard({ employees, date }: { employees: Employee[]; date: string }) {
     if (employees.length === 0) return null;
     return (
-      <div className="card mt-4 overflow-hidden border-none shadow-sm bg-amber-50 dark:bg-amber-900/10 border border-amber-100 dark:border-amber-900/30">
+      <div className="card mt-4 overflow-hidden border border-amber-200/80 dark:border-amber-900/30 shadow-sm bg-amber-50/40 dark:bg-amber-900/10">
         <div className="p-4 flex flex-col md:flex-row md:items-center gap-4">
           <div className="flex-shrink-0">
-            <div className="text-xs uppercase tracking-wider text-amber-700 dark:text-amber-500 font-bold flex items-center gap-2">
+            <div className="text-xs uppercase tracking-wider text-amber-700 dark:text-amber-400 font-bold flex items-center gap-2">
               <span className="text-lg">✈️</span> On Leave
             </div>
           </div>
-          <div className="flex flex-wrap gap-2 md:ml-4 border-l-0 md:border-l border-amber-200 dark:border-amber-900/50 md:pl-4">
+          <div className="flex flex-wrap gap-2 md:ml-4 border-l-0 md:border-l border-amber-200/60 dark:border-amber-900/40 md:pl-4">
             {employees.map(emp => {
                const assignment = getAssignment(roster, emp, date);
-               const reason = assignment?.reason?.split('|')[3] || 'Leave';
+               const { leaveType, reasonText } = parseLeaveReason(assignment?.reason);
                return (
-                 <div key={emp.id} className="bg-white dark:bg-gray-900 pl-1 pr-3 py-1 rounded-lg shadow-sm border border-amber-200 dark:border-amber-900/50 flex items-center gap-2">
+                 <div key={emp.id} className="bg-white dark:bg-gray-900 pl-1.5 pr-3 py-1.5 rounded-lg shadow-sm border border-amber-200 dark:border-amber-900/50 flex items-center gap-2">
                    <div className="w-7 h-7 rounded-full overflow-hidden shrink-0">
                       <Avatar emp={emp} className="w-full h-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center text-[10px] font-bold text-amber-600" />
                    </div>
                    <div className="flex flex-col">
-                     <span className="text-sm font-medium text-gray-800 dark:text-gray-200">{emp.name}</span>
-                     <span className="text-[10px] text-amber-600 dark:text-amber-500">{reason}</span>
+                     <div className="flex items-center gap-1.5">
+                       <span className="text-sm font-medium text-gray-800 dark:text-gray-200">{emp.name}</span>
+                       <span className="text-[10px] font-semibold bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 px-1 py-0.2 rounded">
+                         {leaveType === 'half' ? '½ Half Day' : 'Leave'}
+                       </span>
+                     </div>
+                     {reasonText && <span className="text-[10px] text-amber-600 dark:text-amber-400 truncate max-w-[200px]">{reasonText}</span>}
                    </div>
                  </div>
                );
