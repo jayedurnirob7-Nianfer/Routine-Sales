@@ -204,12 +204,21 @@ async function apiPost(action: string, payload: Record<string, unknown>): Promis
 
 export async function getEmployees(): Promise<Employee[]> { return (await getAll()).employees; }
 export async function getRoster(): Promise<RosterData> { return (await getAll()).roster; }
-export async function getArchiveRoster(year: number, month: number): Promise<RosterData> {
-  const res = await fetch(`${GOOGLE_APP_SCRIPT_URL}?action=getArchive&year=${year}&month=${month}&_t=${Date.now()}`, { cache: 'no-store' });
+const archiveMemCache: Record<string, RosterData> = {};
+
+export async function getArchiveRoster(year: number, month: number, forceRefresh = false): Promise<RosterData> {
+  const cacheKey = `${year}-${String(month).padStart(2, '0')}`;
+  if (!forceRefresh && archiveMemCache[cacheKey]) {
+    return archiveMemCache[cacheKey];
+  }
+
+  const res = await fetch(`/api/archive?year=${year}&month=${month}&_t=${Date.now()}`, { cache: 'no-store' });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const json = await res.json() as any;
   if (json.status !== 'ok') throw new Error(json.message || 'API error');
-  return toRoster(json.data.roster as Record<string, unknown[]>);
+  const rosterData = toRoster((json.data?.roster || {}) as Record<string, unknown[]>);
+  archiveMemCache[cacheKey] = rosterData;
+  return rosterData;
 }
 export async function getSiteSettings(): Promise<SiteSettings> {
   try { return (await getAll()).settings; } catch { return { siteName: 'PXL', logoEmoji: '⬡' }; }
@@ -278,6 +287,8 @@ export async function saveSiteSettings(settings: SiteSettings): Promise<void> {
 }
 export async function saveArchiveRoster(roster: RosterData, dateStr: string): Promise<void> {
   const [year, month] = dateStr.split('-').map(Number);
+  const cacheKey = `${year}-${String(month).padStart(2, '0')}`;
+  archiveMemCache[cacheKey] = roster;
   await fetch('/api/archive', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

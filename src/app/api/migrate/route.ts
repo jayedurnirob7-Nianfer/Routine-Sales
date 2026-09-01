@@ -36,37 +36,46 @@ export async function POST(request: Request) {
 
     const data = json.data;
 
-    await Employee.deleteMany({});
-    await Roster.deleteMany({});
-    await Settings.deleteMany({});
-
     if (data.employees && data.employees.length > 0) {
-      const empsToInsert = data.employees.map((e: any) => {
+      const empOps = data.employees.map((e: any) => {
         const decoded = decodeRole(e.role);
         return {
-          id: String(e.id ?? ''),
-          name: String(e.name ?? ''),
-          employeeId: String(e.employeeId ?? ''),
-          role: decoded.role,
-          active: true,
-          createdAt: String(e.createdAt ?? ''),
-          weeklyOffDay: typeof e.weeklyOffDay === 'number' ? e.weeklyOffDay : (e.weeklyOffDay ? parseInt(String(e.weeklyOffDay), 10) : undefined),
-          defaultShift: e.defaultShift || 'morning',
-          profileImage: decoded.profileImage,
-          password: decoded.password || '1234',
-          requests: decoded.requests,
+          updateOne: {
+            filter: { id: String(e.id ?? '') },
+            update: {
+              $set: {
+                name: String(e.name ?? ''),
+                employeeId: String(e.employeeId ?? ''),
+                role: decoded.role,
+                active: true,
+                createdAt: String(e.createdAt ?? ''),
+                weeklyOffDay: typeof e.weeklyOffDay === 'number' ? e.weeklyOffDay : (e.weeklyOffDay ? parseInt(String(e.weeklyOffDay), 10) : undefined),
+                defaultShift: e.defaultShift || 'morning',
+                profileImage: decoded.profileImage,
+                password: decoded.password || '1234',
+              },
+              $setOnInsert: {
+                id: String(e.id ?? ''),
+                requests: decoded.requests || {},
+              }
+            },
+            upsert: true
+          }
         };
       });
-      await Employee.insertMany(empsToInsert);
+      await Employee.bulkWrite(empOps as any);
     }
 
     if (data.roster) {
-      const rostersToInsert = Object.entries(data.roster).map(([date, assignments]) => ({
-        date,
-        assignments
+      const rosterOps = Object.entries(data.roster).map(([date, assignments]) => ({
+        updateOne: {
+          filter: { date },
+          update: { $set: { assignments } },
+          upsert: true
+        }
       }));
-      if (rostersToInsert.length > 0) {
-        await Roster.insertMany(rostersToInsert);
+      if (rosterOps.length > 0) {
+        await Roster.bulkWrite(rosterOps as any);
       }
     }
 

@@ -395,11 +395,7 @@ export default function AssignShiftModal({ employee, date, currentAssignment, ro
               onClick={handleSave} 
               disabled={saving || !fromDate || !toDate}
               className="btn-primary text-xs flex items-center gap-1.5 shadow-lg shadow-teal-500/20 disabled:opacity-40">
-              {saving ? 'Saving…' : (
-                includeWeeklyOff
-                  ? `Assign ${shift === 'leave' ? 'Leave' : shift === 'off' ? targetShift : shift} + ${selectedOffDayLabel} Off`
-                  : shift === 'leave' ? `Assign ${leaveType === 'full' ? 'Full' : 'Half'} Leave` : shift === 'off' ? 'Assign Off Day' : 'Assign Shift'
-              )}
+              {saving ? 'Saving…' : 'Assign'}
             </button>
           </div>
         </div>

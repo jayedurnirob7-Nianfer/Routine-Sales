@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/auth';
-import { getRoster, getAssignment, saveEmployees, getEmployees, submitShiftRequest, SHIFT_INFO, WEEKDAYS, invalidateCache } from '@/lib/store';
+import { getRoster, getArchiveRoster, getAssignment, saveEmployees, getEmployees, submitShiftRequest, SHIFT_INFO, WEEKDAYS, invalidateCache } from '@/lib/store';
 import { Employee, RosterData, ShiftType, ShiftRequest } from '@/types';
 
 function Avatar({ emp, className = '' }: { emp: Employee, className?: string }) {
@@ -13,10 +13,15 @@ function Avatar({ emp, className = '' }: { emp: Employee, className?: string }) 
 
 export default function MySchedulePage() {
   const { employeeUser, isLoading } = useAuth();
-  const [roster, setRoster] = useState<RosterData>({});
+  const [currentRoster, setCurrentRoster] = useState<RosterData>({});
+  const [activeRoster, setActiveRoster] = useState<RosterData>({});
   const [loading, setLoading] = useState(true);
+  const [loadingMonth, setLoadingMonth] = useState(false);
   const [year, setYear] = useState(new Date().getFullYear());
   const [month, setMonth] = useState(new Date().getMonth() + 1);
+
+  const now = new Date();
+  const isCurrentMonth = year === now.getFullYear() && month === (now.getMonth() + 1);
 
   // Modal State
   const [reqDate, setReqDate] = useState<string | null>(null);
@@ -34,11 +39,31 @@ export default function MySchedulePage() {
   const [passErr, setPassErr] = useState('');
 
   useEffect(() => {
-    if (employeeUser) {
-      setLocalRequests(employeeUser.requests || {});
-      getRoster().then(r => { setRoster(r); setLoading(false); });
+    if (!employeeUser) return;
+    setLocalRequests(employeeUser.requests || {});
+
+    if (isCurrentMonth) {
+      getRoster().then(r => {
+        setCurrentRoster(r);
+        setActiveRoster(r);
+        setLoading(false);
+      });
+    } else {
+      setLoadingMonth(true);
+      getArchiveRoster(year, month)
+        .then(archived => {
+          setActiveRoster(archived);
+        })
+        .catch(err => {
+          console.error("Failed to load archive for month:", err);
+          setActiveRoster({});
+        })
+        .finally(() => {
+          setLoadingMonth(false);
+          setLoading(false);
+        });
     }
-  }, [employeeUser]);
+  }, [employeeUser, year, month, isCurrentMonth]);
 
   if (isLoading) return null;
   if (!employeeUser) return <div className="p-8 text-center text-red-500">Access Denied. Employee login required.</div>;
@@ -67,7 +92,7 @@ export default function MySchedulePage() {
       if (reqType === 'leave' || reqType === 'issue') {
         reasonToSave = reqReason;
       } else if (reqType === 'shift') {
-        const currentAssigned = getAssignment(roster, employeeUser, reqDate);
+        const currentAssigned = getAssignment(activeRoster, employeeUser, reqDate);
         let oldShiftStr = currentAssigned?.shift || employeeUser.defaultShift || 'unknown';
         if (SHIFT_INFO[oldShiftStr as ShiftType]) {
           oldShiftStr = SHIFT_INFO[oldShiftStr as ShiftType].label;
@@ -147,7 +172,8 @@ export default function MySchedulePage() {
               if (m < 1) { m = 12; y--; }
               setMonth(m); setYear(y);
             }}>←</button>
-            <span className="font-semibold text-sm w-32 text-center">
+            <span className="font-semibold text-sm w-36 text-center flex items-center justify-center gap-1.5">
+              {loadingMonth && <div className="w-3.5 h-3.5 border-2 border-teal-500 border-t-transparent rounded-full animate-spin"></div>}
               {new Date(year, month - 1).toLocaleString('default', { month: 'long', year: 'numeric' })}
             </span>
             <button className="p-2 hover:bg-white dark:hover:bg-gray-700 rounded-lg transition-colors text-gray-500 hover:text-gray-900 dark:hover:text-white" onClick={() => {
@@ -166,7 +192,7 @@ export default function MySchedulePage() {
             const d = idx + 1;
             const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
             const isToday = dateStr === new Date().toISOString().split('T')[0];
-            const assignment = getAssignment(roster, employeeUser, dateStr);
+            const assignment = getAssignment(activeRoster, employeeUser, dateStr);
             const req = localRequests[dateStr];
             const weekday = new Date(year, month - 1, d).toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase();
 
@@ -223,7 +249,7 @@ export default function MySchedulePage() {
           const d = idx + 1;
           const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
           const isToday = dateStr === new Date().toISOString().split('T')[0];
-          const assignment = getAssignment(roster, employeeUser, dateStr);
+          const assignment = getAssignment(activeRoster, employeeUser, dateStr);
           const req = localRequests[dateStr];
           const weekday = new Date(year, month - 1, d).toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase();
 

@@ -245,7 +245,8 @@ export async function POST(request: Request) {
     if (action === 'deleteEmployee') {
       const { id } = payload;
       if (id) {
-        await Employee.deleteOne({ $or: [{ id }, { employeeId: id }] });
+        // Soft-delete to preserve all history, shifts, and requests permanently
+        await Employee.updateOne({ $or: [{ id }, { employeeId: id }] }, { $set: { active: false } });
       }
       return NextResponse.json({ status: 'ok' });
     }

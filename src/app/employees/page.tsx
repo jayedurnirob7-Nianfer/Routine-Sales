@@ -520,7 +520,7 @@ export default function EmployeesPage() {
               return (
                 <div key={date} className={`p-3 rounded-xl border transition-all hover:shadow-md cursor-pointer
                   ${isToday ? 'bg-teal-50 dark:bg-teal-900/10 border-teal-200 dark:border-teal-800/50 shadow-sm ring-1 ring-teal-500/20' : 'bg-white dark:bg-gray-900 border-gray-100 dark:border-gray-800 hover:border-teal-300'}`}
-                  onClick={() => isAdmin && archiveMonth === 'current' && setAssignTarget({ emp: selected, date })}>
+                  onClick={() => isAdmin && setAssignTarget({ emp: selected, date })}>
                   <div className={`text-[10px] uppercase font-bold tracking-wider mb-0.5 ${isToday ? 'text-teal-600 dark:text-teal-400' : 'text-gray-400'}`}>
                     {new Date(date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short' })} {isToday && '(TODAY)'}
                   </div>
@@ -735,10 +735,15 @@ export default function EmployeesPage() {
         <AssignShiftModal
           employee={assignTarget.emp}
           date={assignTarget.date}
-          currentAssignment={getAssignment(roster, assignTarget.emp, assignTarget.date)}
-          roster={roster}
+          currentAssignment={getAssignment(activeRoster, assignTarget.emp, assignTarget.date)}
+          roster={activeRoster}
+          isArchive={isArchive}
           onSave={(newRoster, updatedEmp) => { 
-            setRoster(newRoster); 
+            if (isArchive) {
+              setArchiveRoster(newRoster);
+            } else {
+              setRoster(newRoster); 
+            }
             if (updatedEmp) {
               const updated = employees.map(e => e.id === updatedEmp.id ? updatedEmp : e);
               saveEmployees(updated);

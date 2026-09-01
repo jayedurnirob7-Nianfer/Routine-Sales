@@ -65,10 +65,8 @@ export async function GET(request: Request) {
       throw new Error('Failed to push archive to Google Sheets');
     }
 
-    // If successful, delete from MongoDB
-    await Roster.deleteMany({ date: { $regex: `^${prefix}` } });
-
-    return NextResponse.json({ status: 'ok', archivedEntries: rosterEntries.length, month: prefix });
+    // Retain full data in MongoDB for permanent safety and dual redundancy
+    return NextResponse.json({ status: 'ok', archivedEntries: rosterEntries.length, month: prefix, message: 'Safely backed up to Google Sheets and preserved in MongoDB.' });
 
   } catch (error: any) {
     console.error("Cron Archive Error:", error);
